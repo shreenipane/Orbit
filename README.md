@@ -20,7 +20,6 @@ A native Android (Kotlin + Jetpack Compose) app for VIT Vellore students, pulled
 * **CGPA:** a calculator (target CGPA, what-if grades) and a grade history tab showing which categories (discipline core, electives, open electives, NGCR…) you still need, with every past course and its grade ranges
 * **Calendar:** VTOP's academic calendar as a month grid; tap a day to see whether it's a class day, holiday or exam and which classes run
 * **FFCS planner:** type slot combos (A1+TA1, L31+L32) to check clashes and credits before registration
-* **Biometric log:** your punches at the academic blocks, day by day
 * **Hostel leave:** opens VTOP's own leave form inside the app, already signed in
 * **Past papers:** CodeChef-VIT's question-paper archive for each of your courses, read inside the app, saved to your phone or shared
 * **Study plan:** plan what to revise on which day and tick it off
@@ -94,6 +93,28 @@ VtopClient: /vtop/content → _csrf + authorizedIDX                      │
 * **New in 0.7, untested against live VTOP:** the Campus pages (announcements, proctor, HOD/Dean, faculty search, fees, biometric log) and semester results. Their parsers were built from VTOP's documented layouts; if one shows nothing, send the debug report from Settings.
 * **Not included:** course page view, mess menu and hostel outing requests (outing requests are left out on purpose: a wrong guess at the format could file a real leave request).
 * **Assumptions:** attendance uses the 75% threshold. Lab weightage follows however VTOP counts classes for that course.
+
+## Security notes
+
+* **Sign-in:** your password goes only to VTOP. It's saved only if you choose to, encrypted with AES-256-GCM using a hardware-backed key that only works after a fingerprint check.
+* **Sign-in browser:** the page's link back to the app only accepts messages from VTOP's own HTTPS page. File access is off and navigation is limited to VTOP (plus Google's reCAPTCHA).
+* **Outside input:** friend codes and QR scans are size-limited and validated. Past papers only download from the archive's own storage, with a size cap and safe file names.
+* **Debug reports:** registration numbers, e-mails, phone numbers and VTOP's CSRF token are masked, and saved pages are deleted after a week.
+* **Build:** CI ships a non-debuggable release build.
+
+### Permanent signing key (recommended)
+
+Without one, each CI build is signed with a fresh debug key, so Android refuses to install it over the previous build, and you'd have to uninstall (and lose saved data) to update. Set one up once, on your Mac:
+
+```
+keytool -genkeypair -v -keystore orbit.jks -alias orbit -keyalg RSA -keysize 4096 -validity 10000
+base64 -i orbit.jks | gh secret set ORBIT_KEYSTORE_B64
+gh secret set ORBIT_KEYSTORE_PASSWORD   # the store password you chose
+gh secret set ORBIT_KEY_ALIAS --body orbit
+gh secret set ORBIT_KEY_PASSWORD        # the key password (same as the store password if you pressed Enter)
+```
+
+Keep `orbit.jks` and its passwords safe and out of the repo. You'll need to uninstall once after the first build signed with this key. After that, updates install over each other.
 
 ## Credits
 

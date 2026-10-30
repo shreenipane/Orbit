@@ -7,9 +7,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -391,17 +394,27 @@ private fun NativeLogin(
     }
 }
 
-/** Receives what the user typed on VTOP's login form, for the save-to-locker offer. */
-private class LoginBridge {
+/**
+ * Receives what the user typed on VTOP's login form, for the save-to-locker offer.
+ *
+ * Wired with WebViewCompat.addWebMessageListener, restricted to VTOP's HTTPS
+ * origin and the top frame: unlike addJavascriptInterface, Google's reCAPTCHA
+ * frames (or any other page) can't call it, so nothing else can plant a login.
+ */
+private class LoginBridge(private val origin: String) : WebViewCompat.WebMessageListener {
     @Volatile var typed: CredentialVault.Credentials? = null
 
-    @JavascriptInterface
-    fun capture(user: String?, pass: String?) {
-        if (!user.isNullOrBlank() && !pass.isNullOrBlank()) typed = CredentialVault.Credentials(user.trim(), pass)
+    override fun onPostMessage(view: WebView, message: WebMessageCompat, sourceOrigin: Uri, isMainFrame: Boolean, replyProxy: JavaScriptReplyProxy) {
+        if (!isMainFrame || sourceOrigin.toString().trimEnd('/') != origin) return
+        val o = runCatching { JSONObject(message.data ?: return) }.getOrNull() ?: return
+        val user = o.optString("u").trim(); val pass = o.optString("p")
+        if (user.isNotBlank() && pass.isNotBlank() && user.length <= 32 && pass.length <= 128) {
+            typed = CredentialVault.Credentials(user, pass)
+        }
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
+@SuppressLint("SetJavaScriptEnabled", "RequiresFeature")
 @Composable
 private fun VtopWebLogin(
     campus: Campus,
@@ -412,7 +425,7 @@ private fun VtopWebLogin(
     var loading by remember { mutableStateOf(true) }
     var finished by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    val bridge = remember { LoginBridge() }
+    val bridge = remember { LoginBridge(campus.baseUrl.trimEnd('/')) }
     val vtopHost = remember { Uri.parse(campus.baseUrl).host.orEmpty() }
 
     BackHandler {
@@ -444,7 +457,12 @@ private fun VtopWebLogin(
                         settings.displayZoomControls = false
                         settings.saveFormData = false
                         settings.userAgentString = settings.userAgentString.replace("; wv", "")
-                        addJavascriptInterface(bridge, "OrbitBridge")
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        // Only VTOP's own page (top frame, HTTPS) can reach the bridge.
+                        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                            WebViewCompat.addWebMessageListener(this, "OrbitBridge", setOf(campus.baseUrl.trimEnd('/')), bridge)
+                        }
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 loading = true
@@ -461,10 +479,13 @@ private fun VtopWebLogin(
                                 }
                             }
 
-                            // Stay on VTOP: the bridge must never be exposed to other sites.
+                            // Stay on VTOP (plus Google's reCAPTCHA pages, matched as real subdomains, not look-alikes).
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                val host = request?.url?.host ?: return true
-                                return host != vtopHost && !host.endsWith("google.com") && !host.endsWith("gstatic.com")
+                                val url = request?.url ?: return true
+                                if (url.scheme != "https") return true
+                                val host = url.host ?: return true
+                                fun under(d: String) = host == d || host.endsWith(".$d")
+                                return host != vtopHost && !under("google.com") && !under("gstatic.com")
                             }
                         }
                         loadUrl(campus.loginUrl)
@@ -500,7 +521,7 @@ private fun loginScript(fill: CredentialVault.Credentials?): String {
           if (U && !u.value) { set(u, U); set(p, P); }
           var c = document.querySelector('#captchaStr, input[name="captchaStr"]');
           if (U && c) c.focus();
-          function report() { try { OrbitBridge.capture(u.value, p.value); } catch (e) {} }
+          function report() { try { OrbitBridge.postMessage(JSON.stringify({ u: u.value, p: p.value })); } catch (e) {} }
           if (!window.__orbitHooked) {
             window.__orbitHooked = true;
             document.addEventListener('submit', report, true);

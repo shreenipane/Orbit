@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
  */
 class VtopLogin(private val campus: Campus, cookieJar: WebViewCookieJar) {
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttp.base.newBuilder()
         .cookieJar(cookieJar)
         .followRedirects(true)
         .connectTimeout(20, TimeUnit.SECONDS)

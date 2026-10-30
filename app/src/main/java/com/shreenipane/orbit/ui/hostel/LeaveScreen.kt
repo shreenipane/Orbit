@@ -102,6 +102,8 @@ fun VtopPage(title: String, findMenu: Regex?, onClose: () -> Unit) {
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
                                 settings.userAgentString = settings.userAgentString.replace("; wv", "")
+                                settings.allowFileAccess = false
+                                settings.allowContentAccess = false
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) { loading = true }
                                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -113,7 +115,7 @@ fun VtopPage(title: String, findMenu: Regex?, onClose: () -> Unit) {
                                     }
                                     // Stay on VTOP.
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
-                                        request?.url?.host != host
+                                        request?.url?.scheme != "https" || request.url?.host != host
                                 }
                                 loadUrl("${Campus.VELLORE.baseUrl}/vtop/content")
                                 webView = this

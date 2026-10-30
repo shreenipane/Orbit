@@ -1,14 +1,8 @@
 package com.shreenipane.orbit.data
 
 import com.shreenipane.orbit.core.model.AcademicCalendar
-import com.shreenipane.orbit.core.model.Announcement
-import com.shreenipane.orbit.core.model.BiometricEntry
-import com.shreenipane.orbit.core.model.Faculty
 import com.shreenipane.orbit.core.model.GradeResult
 import com.shreenipane.orbit.core.model.GradeStats
-import com.shreenipane.orbit.core.model.KeyValue
-import com.shreenipane.orbit.core.model.PendingPayment
-import com.shreenipane.orbit.core.model.Receipt
 import com.shreenipane.orbit.core.model.AttendanceRecord
 import com.shreenipane.orbit.core.model.CourseMarks
 import com.shreenipane.orbit.core.model.DigitalAssignment
@@ -52,7 +46,9 @@ class VtopClient(
     /** Receives raw pages (name, html) for the debug export in Settings. */
     private val onRaw: (String, String) -> Unit = { _, _ -> },
 ) {
-    private val http = OkHttpClient.Builder()
+    // Built from one shared client so every VtopClient (sync, keep-alive, lookups) reuses the same
+    // connection pool and threads instead of opening its own.
+    private val http = SharedHttp.base.newBuilder()
         .cookieJar(cookieJar)
         .followRedirects(true)
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -231,38 +227,6 @@ class VtopClient(
         return send(path, body).also { onRaw("${name}_multipart", it) }
     }
 
-    suspend fun announcements(): List<Announcement> =
-        CampusParsers.announcements(postData("/vtop/home").also { onRaw("spotlight_home", it) })
-
-    suspend fun proctor(): List<KeyValue> =
-        CampusParsers.keyValues(postData("/vtop/proctor/viewProctorDetails").also { onRaw("proctor", it) })
-
-    suspend fun hodDean(): List<KeyValue> =
-        CampusParsers.keyValues(postData("/vtop/hrms/viewHodDeanDetails").also { onRaw("hod_dean", it) })
-
-    suspend fun facultySearch(term: String): List<Faculty> =
-        CampusParsers.facultySearch(postData("/vtop/hrms/EmployeeSearchForStudent", "empId" to term).also { onRaw("faculty_search", it) })
-
-    suspend fun facultyDetail(empId: String): List<KeyValue> =
-        CampusParsers.facultyDetail(postData("/vtop/hrms/EmployeeSearch1ForStudent", "empId" to empId).also { onRaw("faculty_detail", it) })
-
-    suspend fun pendingPayments(): List<PendingPayment> {
-        val html = runCatching { postShell("/vtop/finance/Payments") }.getOrNull()
-            ?.takeIf { it.contains("<table") || it.contains("no payment dues", true) }
-            ?: postShell("/vtop/p2p/Payments")
-        onRaw("payments_due", html)
-        return CampusParsers.pendingPayments(html)
-    }
-
-    suspend fun receipts(): List<Receipt> =
-        CampusParsers.receipts(postShell("/vtop/p2p/getReceiptsApplno").also { onRaw("receipts", it) })
-
-    /** [date] as dd/MM/yyyy. */
-    suspend fun biometric(date: String): List<BiometricEntry> {
-        runCatching { postShell("/vtop/academics/biometriclogdisplay") }
-        return CampusParsers.biometric(postData("/vtop/getStudBioHistory", "fromDate" to date).also { onRaw("biometric", it) })
-    }
-
     suspend fun gradeView(semId: String): List<GradeResult> =
         CampusParsers.gradeView(postEither("grade_view", "/vtop/examinations/examGradeView/doStudentGradeView", "semesterSubId" to semId))
 
@@ -302,8 +266,12 @@ class VtopClient(
             .header("Referer", campus.baseUrl + "/vtop/content")
             .build()
         http.newCall(req).execute().use { res ->
-            // A dead session/CSRF token makes Spring's filter answer 404 before routing.
-            if (res.code == 404 || res.code == 401 || res.code == 403) throw SessionExpiredException()
+            // A dead session/CSRF token makes Spring's filter answer 404 before routing, but so does a
+            // page this campus doesn't have. Check the session itself before calling it a logout.
+            if (res.code == 404 || res.code == 401 || res.code == 403) {
+                if (stillSignedIn()) throw VtopUnavailableException("VTOP doesn't have this page (HTTP ${res.code}).")
+                throw SessionExpiredException()
+            }
             val html = res.body?.string().orEmpty()
             if (!res.isSuccessful) throw VtopUnavailableException("VTOP returned HTTP ${res.code}")
             if (VtopParsers.looksLoggedOut(html)) throw SessionExpiredException()
@@ -311,6 +279,9 @@ class VtopClient(
             html
         }
     }
+
+    /** True when VTOP's content page still shows a logged-in session. */
+    private fun stillSignedIn(): Boolean = runCatching { VtopParsers.session(get("/vtop/content")) != null }.getOrDefault(false)
 
     private fun get(path: String): String {
         val req = Request.Builder().url(campus.baseUrl + path).header("User-Agent", userAgent).build()

@@ -43,32 +43,12 @@ class V07Test {
         assertTrue(Curriculum.buckets(g).isNotEmpty())
     }
 
-    @Test fun campusPages() {
+    @Test fun resultsPage() {
         val results = CampusParsers.gradeView(fixture("grade_view.html"))
         assertTrue(results.size >= 2)
         assertEquals("CSE1008", results[0].code)
         assertEquals("B", results[0].grade)
         assertEquals("63", results[0].total)
-
-        val spot = CampusParsers.announcements("""
-            <div class="offcanvas"><div class="offcanvas-header"><span>Academics</span></div>
-            <div class="offcanvas-body"><ul><li>FAT timetable published <a onclick="openLink('downloads/fat.pdf')">here</a></li><li>  </li></ul></div></div>""")
-        assertEquals(1, spot.size)
-        assertEquals("Academics", spot[0].category)
-        assertEquals("downloads/fat.pdf", spot[0].link)
-
-        val kv = CampusParsers.keyValues("""<table id="showDetails"><tr><td><img src="x"/></td></tr>
-            <tr><td>Faculty Name</td><td>Dr. X</td></tr><tr><td>Cabin</td><td>SJT 305</td><td>Mobile</td><td>98xxxx</td></tr></table>""")
-        assertEquals(listOf("Faculty Name", "Cabin", "Mobile"), kv.map { it.key })
-
-        val fac = CampusParsers.facultySearch("""<table><tr><td>Name</td><td>Designation</td><td>School</td><td></td></tr>
-            <tr><td>SRIVANI A</td><td>Assistant Professor</td><td>SCOPE</td><td><button id="70345">View</button></td></tr></table>""")
-        assertEquals("70345", fac.single().empId)
-
-        val due = CampusParsers.pendingPayments("""<table><tr><td>S.No</td><td>FPREFNO</td><td>Fees Heads</td><td>End Date</td><td>Amount</td><td>Fine</td><td>Total Amount</td></tr>
-            <tr><td>1</td><td>FP123</td><td>Hostel Fee</td><td>15-Nov-2026</td><td>90000</td><td>0</td><td>90000</td></tr></table>""")
-        assertEquals("Hostel Fee", due.single().head)
-        assertEquals("15-Nov-2026", due.single().dueDate)
     }
 
     private val cal = AcademicCalendar("G", "General (Flexible)", listOf(
@@ -259,5 +239,28 @@ class V07Test {
         val aug = fixture("calendar_month.html")
         assertTrue(P.month(aug, "01-AUG-2026").isNotEmpty())
         assertTrue(P.month(aug, "01-NOV-2026").isEmpty())
+    }
+
+    @Test fun debugPagesAreRedacted() {
+        val html = """<input type="hidden" name="_csrf" value="9f1c-abc"/><script>var csrfValue = "9f1c-abc";</script>
+            <td>24BCE2903</td><td>shree.n2024@vitstudent.ac.in</td><td>+91 9876543210</td><td>Slot 1234567890123</td>"""
+        val out = com.shreenipane.orbit.core.Redact.page(html)
+        assertTrue(out, !out.contains("9f1c-abc"))
+        assertTrue(!out.contains("24BCE2903") && !out.contains("vitstudent") && !out.contains("9876543210"))
+        assertTrue(out.contains("1234567890123"))   // long numbers that aren't phone numbers stay
+    }
+
+    @Test fun hostileShareCodesAreRejected() {
+        // A "zip bomb": tiny code, huge inflated text.
+        val bomb = java.io.ByteArrayOutputStream().also { bos ->
+            val d = java.util.zip.Deflater(9).apply { setInput(ByteArray(5_000_000) { 'a'.code.toByte() }); finish() }
+            val buf = ByteArray(4096); while (!d.finished()) bos.write(buf, 0, d.deflate(buf)); d.end()
+        }.toByteArray()
+        val code = "ORBIT1:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bomb)
+        assertEquals(null, com.shreenipane.orbit.core.ShareCode.decode(code))
+        // Bad day / time fields.
+        val bad = com.shreenipane.orbit.core.ShareCode.encode(com.shreenipane.orbit.core.ShareCode.Payload("X", "S",
+            listOf(ClassSession(9, "08:00", "08:50", "A1", "C", "T", "TH", "V"))))
+        assertEquals(null, com.shreenipane.orbit.core.ShareCode.decode(bad))
     }
 }

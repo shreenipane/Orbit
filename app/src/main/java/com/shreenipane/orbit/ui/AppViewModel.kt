@@ -9,7 +9,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.shreenipane.orbit.core.ShareCode
-import com.shreenipane.orbit.core.model.CampusInfo
 import com.shreenipane.orbit.core.model.ClassOverride
 import com.shreenipane.orbit.core.model.ClassSession
 import com.shreenipane.orbit.core.model.DigitalAssignment
@@ -54,8 +53,6 @@ data class UiState(
     val overrides: List<ClassOverride> = emptyList(),
     val planner: List<PlannedCourse> = emptyList(),
     val studyPlan: List<com.shreenipane.orbit.core.model.StudyItem> = emptyList(),
-    val campusInfo: CampusInfo? = null,
-    val campusLoading: Boolean = false,
 )
 
 /** Progress of a DA upload, shown in the DA sheet. */
@@ -80,7 +77,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                 it.copy(
                     loading = false, snapshot = cached, showLogin = cached == null,
                     reminders = repo.reminders(), friends = repo.friends(),
-                    overrides = repo.overrides(), planner = repo.planner(), studyPlan = repo.studyPlan(), campusInfo = repo.campusInfo(),
+                    overrides = repo.overrides(), planner = repo.planner(), studyPlan = repo.studyPlan(),
                 )
             }
             if (cached != null) refresh(silent = true)
@@ -121,7 +118,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
             try {
                 val snap = repo.refresh(semesterId)
                 _state.update { it.copy(snapshot = snap, refreshing = false, sessionExpired = false) }
-                Work.planAlerts(app, snap, repo.settings, _state.value.overrides, null)
+                Work.planAlerts(app, snap, repo.settings, _state.value.overrides)
                 OrbitWidget.update(app, snap, _state.value.overrides)
             } catch (e: SessionExpiredException) {
                 _state.update {
@@ -178,7 +175,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         if (next.weeklyReport != prev.weeklyReport) Work.ensurePeriodic(app, next)
         if (next.classAlerts != prev.classAlerts || next.classAlertLeadMinutes != prev.classAlertLeadMinutes ||
             next.examAlerts != prev.examAlerts
-        ) Work.planAlerts(app, _state.value.snapshot, next, _state.value.overrides, null)
+        ) Work.planAlerts(app, _state.value.snapshot, next, _state.value.overrides)
     }
 
     // ---------- reminders & assignments ----------
@@ -286,7 +283,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         _state.update { it.copy(overrides = next) }
         viewModelScope.launch {
             repo.saveOverrides(next)
-            Work.planAlerts(app, _state.value.snapshot, repo.settings, next, null)
+            Work.planAlerts(app, _state.value.snapshot, repo.settings, next)
             OrbitWidget.update(app, _state.value.snapshot, next)
         }
     }
@@ -316,21 +313,6 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
     private fun sessionEnded(e: Exception): Boolean {
         if (e is SessionExpiredException) { _state.update { it.copy(sessionExpired = true) }; return true }
         return false
-    }
-
-    fun refreshCampus() {
-        if (_state.value.campusLoading) return
-        viewModelScope.launch {
-            _state.update { it.copy(campusLoading = true) }
-            try {
-                val c = repo.refreshCampus()
-                _state.update { it.copy(campusInfo = c, campusLoading = false) }
-                Work.planAlerts(app, _state.value.snapshot, repo.settings, _state.value.overrides, c)
-            } catch (e: Exception) {
-                sessionEnded(e)
-                _state.update { it.copy(campusLoading = false, message = if (e is SessionExpiredException) null else e.message) }
-            }
-        }
     }
 
     /** Runs a one-off VTOP lookup; failures come back as a message instead of throwing. */

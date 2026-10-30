@@ -13,7 +13,6 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.outlined.BeachAccess
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Hotel
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.WorkspacePremium
@@ -50,7 +49,6 @@ enum class MoreDestination(val title: String, val subtitle: String, val icon: Im
     Cgpa("CGPA", "Calculator and grade history", Icons.Outlined.School, "Academics"),
     Results("Results", "Grades and grade ranges", Icons.Outlined.WorkspacePremium, "Academics"),
     Holidays("Holidays", "Next break and all breaks", Icons.Outlined.BeachAccess, "Academics"),
-    Biometric("Biometric log", "Your punches at the academic blocks", Icons.Outlined.Fingerprint, "Academics"),
     Reminders("Deadlines", "DAs and reminders", Icons.AutoMirrored.Outlined.Assignment, "Plan"),
     Planner("FFCS planner", "Check slot clashes", Icons.Outlined.GridView, "Plan"),
     Leave("Leave", "Apply for hostel leave", Icons.Outlined.Hotel, "Hostel"),
@@ -118,7 +116,6 @@ fun MoreScreen(
                 )
                 MoreDestination.Results -> com.shreenipane.orbit.ui.results.ResultsScreen(snap, vm)
                 MoreDestination.Planner -> com.shreenipane.orbit.ui.planner.PlannerScreen(snap, state.planner, vm::upsertPlanned, vm::removePlanned)
-                MoreDestination.Biometric -> com.shreenipane.orbit.ui.biometric.BiometricScreen(vm)
                 MoreDestination.Leave -> com.shreenipane.orbit.ui.hostel.LeaveScreen()
                 MoreDestination.Friends -> FriendsScreen(snap, state.friends, vm::myShareCode, vm::importFriend, vm::removeFriend, state.settings.alias)
                 MoreDestination.Settings -> SettingsScreen(state, canUseLock, vm)

@@ -59,7 +59,14 @@ fun ExamsScreen(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val now = LocalDateTime.now()
     val minute = now.hour * 60 + now.minute
-    val countdowns = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute, overrides)
+    val today = now.toLocalDate()
+    // Both walk the whole calendar; cache them per data/day instead of per redraw.
+    val countdowns = remember(snap, overrides, today) {
+        ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute, overrides)
+    }
+    val matrix = remember(snap, overrides, today) {
+        ExamPlanner.matrix(snap.calendar, snap.exams, snap.timetable.sessions, today, minute, overrides)
+    }
     var pick by rememberSaveable { mutableIntStateOf(0) }
 
     OrbitScreen(title = "Exams", subtitle = snap.calendar?.classGroupName ?: snap.semester?.name) {
@@ -84,7 +91,6 @@ fun ExamsScreen(
             }
         }
 
-        val matrix = ExamPlanner.matrix(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute, overrides)
         if (matrix != null) {
             section(
                 header = "Classes left per subject",

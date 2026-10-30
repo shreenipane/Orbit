@@ -90,8 +90,11 @@ fun HomeScreen(
     )
     val remainingAll = remember(snap, today, overrides) { ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, today, minute, overrides) }
     val low = snap.attendance.filter { AttendanceCalc.percent(it.attended, it.total) < 75.0 }
-    val countdown = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute, overrides).firstOrNull()
-    val nextBreak = com.shreenipane.orbit.core.calc.Breaks.upcoming(snap.calendar, today).firstOrNull()
+    // Walks the whole calendar, so it's cached: recomputed when data, the day or the minute changes, not on every redraw.
+    val countdown = remember(snap, today, minute, overrides) {
+        ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute, overrides).firstOrNull()
+    }
+    val nextBreak = remember(snap.calendar, today) { com.shreenipane.orbit.core.calc.Breaks.upcoming(snap.calendar, today).firstOrNull() }
     val pendingDas = snap.assignments.filter { !it.submitted }
         .mapNotNull { da -> ExamTime.parseVtopDate(da.dueDate)?.let { da to it } }
         .filter { !it.second.isBefore(today) }

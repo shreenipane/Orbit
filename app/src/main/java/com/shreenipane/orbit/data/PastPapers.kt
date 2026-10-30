@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -31,7 +32,7 @@ data class PastPaper(
  */
 object PastPapers {
     private const val BASE = "https://papers.codechefvit.com"
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttp.base.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
@@ -45,7 +46,7 @@ object PastPapers {
             if (!r.isSuccessful) error("The papers archive didn't answer (${r.code}).")
             val body = json.decodeFromString(Response.serializer(), r.body?.string().orEmpty())
             body.data?.papers.orEmpty()
-                .filter { it.fileUrl.startsWith("https://") }
+                .filter { SAFE_ID.matches(it.id) && trustedFile(it.fileUrl) }
                 .sortedWith(
                     compareByDescending<PastPaper> { it.campus.equals("Vellore", true) }
                         .thenByDescending { it.year }
@@ -56,19 +57,46 @@ object PastPapers {
 
     private val EXAM_ORDER = listOf("CAT-1", "CAT-2", "FAT", "Model CAT-1", "Model CAT-2", "Model FAT")
 
+    /** Paper ids become file names, so only plain ids are accepted (no "../" from a tampered response). */
+    private val SAFE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+    /** PDFs are only fetched over HTTPS from the archive's own storage. */
+    private fun trustedFile(url: String): Boolean {
+        val u = url.toHttpUrlOrNull() ?: return false
+        return u.isHttps && (u.host == "storage.googleapis.com" || u.host == "papers.codechefvit.com" || u.host.endsWith(".codechefvit.com"))
+    }
+
+    /** Question papers are a few MB; anything far bigger isn't one. */
+    private const val MAX_BYTES = 40L * 1024 * 1024
+
     private fun dir(context: Context) = File(context.cacheDir, "papers").apply { mkdirs() }
 
-    fun cached(context: Context, p: PastPaper): File? = File(dir(context), "${p.id}.pdf").takeIf { it.length() > 0 }
+    fun cached(context: Context, p: PastPaper): File? =
+        if (!SAFE_ID.matches(p.id)) null else File(dir(context), "${p.id}.pdf").takeIf { it.length() > 0 }
 
     /** The paper's PDF on the phone, downloading it the first time. */
     suspend fun file(context: Context, p: PastPaper): File = withContext(Dispatchers.IO) {
+        require(SAFE_ID.matches(p.id) && trustedFile(p.fileUrl)) { "That paper's link doesn't look right." }
         cached(context, p)?.let { return@withContext it }
         val out = File(dir(context), "${p.id}.pdf")
         val tmp = File(dir(context), "${p.id}.part")
         http.newCall(Request.Builder().url(p.fileUrl).build()).execute().use { r ->
             if (!r.isSuccessful) error("Couldn't download the paper (${r.code}).")
             val body = r.body ?: error("Empty download.")
-            tmp.outputStream().use { o -> body.byteStream().copyTo(o) }
+            if (body.contentLength() > MAX_BYTES) error("That file is too large to be a question paper.")
+            try {
+                tmp.outputStream().use { o ->
+                    val input = body.byteStream(); val buf = ByteArray(64 * 1024); var total = 0L
+                    while (true) {
+                        val n = input.read(buf); if (n < 0) break
+                        total += n
+                        if (total > MAX_BYTES) error("That file is too large to be a question paper.")
+                        o.write(buf, 0, n)
+                    }
+                }
+            } catch (e: Exception) {
+                tmp.delete(); throw e
+            }
         }
         if (!tmp.renameTo(out)) { tmp.copyTo(out, overwrite = true); tmp.delete() }
         out

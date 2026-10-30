@@ -88,7 +88,6 @@ object Work {
     fun planAlerts(
         context: Context, snap: Snapshot?, settings: AppSettings,
         overrides: List<com.shreenipane.orbit.core.model.ClassOverride> = emptyList(),
-        campus: com.shreenipane.orbit.core.model.CampusInfo? = null,
     ) {
         val wm = WorkManager.getInstance(context)
         wm.cancelAllWorkByTag(TAG_CLASS)
@@ -124,15 +123,6 @@ object Work {
                     Notifier.EXAMS, "${e.examType} tomorrow: ${e.courseTitle}", "$time · $where")
                 alert(context, "exam-1h-${e.examType}-${e.courseCode}", TAG_EXAM, start.minusHours(1),
                     Notifier.EXAMS, "${e.examType} in 1 hour: ${e.courseTitle}", "Report by ${e.reportingTime.ifBlank { time }} · $where")
-            }
-            // Fees due on VTOP: two days before at 10:00, and on the day.
-            if (settings.feeReminders) campus?.pending?.forEach { f ->
-                val due = ExamTime.parseVtopDate(f.dueDate) ?: return@forEach
-                if (due.isBefore(now.toLocalDate())) return@forEach
-                alert(context, "fee-2d-${f.reference}", TAG_EXAM, due.minusDays(2).atTime(10, 0), Notifier.EXAMS,
-                    "Fee due in 2 days: ${f.head}", "₹${f.total} · pay on VTOP by ${f.dueDate}")
-                alert(context, "fee-day-${f.reference}", TAG_EXAM, due.atTime(9, 0), Notifier.EXAMS,
-                    "Fee due today: ${f.head}", "₹${f.total} · pay on VTOP today")
             }
             // Digital assignments still to upload, due in the next two weeks.
             val today = now.toLocalDate()
@@ -188,7 +178,7 @@ class PlanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     override suspend fun doWork(): Result {
         val repo = (applicationContext as OrbitApp).repository
         val snap = repo.cached()
-        Work.planAlerts(applicationContext, snap, repo.settings, repo.overrides(), null)
+        Work.planAlerts(applicationContext, snap, repo.settings, repo.overrides())
         com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, snap, repo.overrides())
         return Result.success()
     }
@@ -211,7 +201,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             if (notes.size > 5) {
                 Notifier.post(applicationContext, Notifier.SYNC, 2005, "${notes.size - 5} more updates", "Open Orbit to see everything that changed.")
             }
-            Work.planAlerts(applicationContext, fresh, repo.settings, repo.overrides(), null)
+            Work.planAlerts(applicationContext, fresh, repo.settings, repo.overrides())
             com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, fresh, repo.overrides())
             Result.success()
         } catch (e: SessionExpiredException) {

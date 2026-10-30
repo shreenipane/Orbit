@@ -249,24 +249,6 @@ data class Friend(
 
 // ---------- campus pages (fetched on demand) ----------
 
-@Serializable
-data class Announcement(val category: String, val text: String, val link: String? = null)
-
-@Serializable
-data class KeyValue(val key: String, val value: String)
-
-@Serializable
-data class Faculty(val name: String, val designation: String, val school: String, val empId: String)
-
-@Serializable
-data class PendingPayment(val reference: String, val head: String, val dueDate: String, val amount: String, val fine: String, val total: String)
-
-@Serializable
-data class Receipt(val number: String, val date: String, val amount: String)
-
-@Serializable
-data class BiometricEntry(val date: String, val time: String, val location: String)
-
 /** One course of a semester's published results. */
 @Serializable
 data class GradeResult(
@@ -282,16 +264,6 @@ data class GradeRange(val grade: String, val range: String)
 /** How the class did in a course: size, mean, SD and where each grade started. */
 @Serializable
 data class GradeStats(val classStrength: String, val mean: String, val sd: String, val ranges: List<GradeRange>)
-
-@Serializable
-data class CampusInfo(
-    val announcements: List<Announcement> = emptyList(),
-    val proctor: List<KeyValue> = emptyList(),
-    val hodDean: List<KeyValue> = emptyList(),
-    val pending: List<PendingPayment> = emptyList(),
-    val receipts: List<Receipt> = emptyList(),
-    val fetchedAtMillis: Long = 0,
-)
 
 /** A course added to the FFCS planner: a slot combination like "A1+TA1" or "L31+L32". */
 /** One entry of your own study plan: what to revise on which day. */

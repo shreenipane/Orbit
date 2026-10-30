@@ -68,7 +68,13 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val text = runCatching {
-                withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }
+                withContext(Dispatchers.IO) {
+                    ctx.contentResolver.openInputStream(uri)?.use { input ->
+                        // Backups are a few KB; refuse anything huge rather than reading it all into memory.
+                        val bytes = input.readNBytesCompat(2 * 1024 * 1024 + 1)
+                        if (bytes.size > 2 * 1024 * 1024) null else bytes.decodeToString()
+                    }
+                }
             }.getOrNull()
             if (text.isNullOrBlank()) toast("Couldn't read that file") else vm.restore(text)
         }
@@ -256,4 +262,14 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
 @Composable
 private fun Toggle(title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListRow(title, subtitle, trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) })
+}
+
+/** Reads at most [limit] bytes (InputStream.readNBytes needs API 33). */
+private fun java.io.InputStream.readNBytesCompat(limit: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(16 * 1024)
+    while (out.size() < limit) {
+        val n = read(buf, 0, minOf(buf.size, limit - out.size())); if (n < 0) break
+        out.write(buf, 0, n)
+    }
+    return out.toByteArray()
 }

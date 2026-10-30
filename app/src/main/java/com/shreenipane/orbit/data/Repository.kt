@@ -3,7 +3,6 @@ package com.shreenipane.orbit.data
 import android.content.Context
 import com.shreenipane.orbit.core.model.AcademicCalendar
 import com.shreenipane.orbit.core.model.AttendanceRecord
-import com.shreenipane.orbit.core.model.CampusInfo
 import com.shreenipane.orbit.core.model.ClassOverride
 import com.shreenipane.orbit.core.model.PlannedCourse
 import com.shreenipane.orbit.core.model.DigitalAssignment
@@ -35,7 +34,6 @@ data class AppSettings(
     /** 0 = follow the phone, 1 = light, 2 = dark. */
     val themeMode: Int = 0,
     val weeklyReport: Boolean = true,
-    val feeReminders: Boolean = true,
     /** Credits your curriculum needs per category (code → credits), entered on the CGPA screen. */
     val creditTargets: Map<String, Double> = emptyMap(),
 )
@@ -84,7 +82,6 @@ class Repository(private val context: Context) {
             keepSignedIn = prefs.getBoolean("keep_alive", true),
             themeMode = prefs.getInt("theme", 0),
             weeklyReport = prefs.getBoolean("weekly", true),
-            feeReminders = prefs.getBoolean("fees", true),
             creditTargets = (prefs.getString("credit_targets", "") ?: "").split(';').mapNotNull { e ->
                 val k = e.substringBefore('=', ""); val v = e.substringAfter('=', "").toDoubleOrNull()
                 if (k.isBlank() || v == null) null else k to v
@@ -100,7 +97,6 @@ class Repository(private val context: Context) {
             .putBoolean("keep_alive", s.keepSignedIn)
             .putInt("theme", s.themeMode)
             .putBoolean("weekly", s.weeklyReport)
-            .putBoolean("fees", s.feeReminders)
             .putString("credit_targets", s.creditTargets.entries.joinToString(";") { "${it.key}=${it.value}" })
             .apply()
 
@@ -142,8 +138,6 @@ class Repository(private val context: Context) {
     suspend fun saveStudyPlan(list: List<com.shreenipane.orbit.core.model.StudyItem>) =
         write("study_plan.json", ListSerializer(com.shreenipane.orbit.core.model.StudyItem.serializer()), list)
 
-    suspend fun campusInfo(): CampusInfo? = read("campus.json", CampusInfo.serializer())
-    private suspend fun saveCampus(c: CampusInfo) = write("campus.json", CampusInfo.serializer(), c)
 
     /** Attendance as of the last weekly report, to compare against. */
     suspend fun weeklyBaseline(): List<AttendanceRecord>? = read("weekly.json", ListSerializer(AttendanceRecord.serializer()))
@@ -187,33 +181,8 @@ class Repository(private val context: Context) {
         File(context.cacheDir, "orbit-${snap.semester?.id ?: "semester"}.ics").apply { writeText(text) }
     }
 
-    // ---------- campus pages ----------
+    // ---------- results ----------
 
-    /** Announcements, proctor, HOD/Dean and fees, each optional, cached for offline viewing. */
-    suspend fun refreshCampus(): CampusInfo = coroutineScope {
-        val c = liveClient()
-        val old = campusInfo() ?: CampusInfo()
-        suspend fun <T> soft(fallback: T, block: suspend () -> T): T = try {
-            block()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: SessionExpiredException) {
-            live = null; throw e
-        } catch (e: Exception) {
-            fallback
-        }
-        val a = async { soft(old.announcements) { c.announcements() } }
-        val p = async { soft(old.proctor) { c.proctor() } }
-        val h = async { soft(old.hodDean) { c.hodDean() } }
-        val d = async { soft(old.pending) { c.pendingPayments() } }
-        val r = async { soft(old.receipts) { c.receipts() } }
-        CampusInfo(a.await(), p.await(), h.await(), d.await(), r.await(), System.currentTimeMillis()).also { saveCampus(it) }
-    }
-
-    suspend fun facultySearch(term: String) = liveClient().facultySearch(term)
-    suspend fun facultyDetail(empId: String) = liveClient().facultyDetail(empId)
-    suspend fun biometric(date: java.time.LocalDate) =
-        liveClient().biometric(date.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")))
     suspend fun gradeView(semId: String) = liveClient().gradeView(semId)
 
     suspend fun gradeStats(semId: String, courseId: String) = liveClient().gradeStats(semId, courseId)
@@ -233,8 +202,11 @@ class Repository(private val context: Context) {
     private fun recordRaw(name: String, html: String) {
         runCatching {
             val dir = File(context.filesDir, "debug").apply { mkdirs() }
-            val masked = html.replace(Regex("\\b\\d{2}[A-Z]{3}\\d{4,5}\\b"), "<REGNO>")
-            File(dir, "$name.html").writeText(masked.take(400_000))
+            // Old pages go after a week; the report is for recent problems only.
+            val week = System.currentTimeMillis() - 7 * 86_400_000L
+            dir.listFiles().orEmpty().filter { it.lastModified() < week }.forEach { it.delete() }
+            val safeName = name.replace(Regex("[^A-Za-z0-9_]"), "_").take(40)
+            File(dir, "$safeName.html").writeText(com.shreenipane.orbit.core.Redact.page(html).take(400_000))
         }
     }
 
@@ -383,7 +355,9 @@ class Repository(private val context: Context) {
         vault.clear()
         live = null
         File(context.filesDir, "debug").deleteRecursively()
+        File(context.cacheDir, "orbit-debug.txt").delete()
         file("snapshot.json").delete()
+        file("campus.json").delete()
         prefs.edit().remove("semester").remove("expiry_notified").remove("class_group").apply()
     }
 }
