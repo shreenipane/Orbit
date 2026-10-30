@@ -3,6 +3,10 @@
 package com.shreenipane.orbit.ui.friends
 
 import android.content.Intent
+import com.shreenipane.orbit.core.calc.Buddies
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
@@ -84,7 +88,12 @@ fun FriendsScreen(
     onImport: (String) -> String?,
     onRemove: (Friend) -> Unit,
     alias: String,
+    planCode: () -> String? = { null },
+    onImportPlan: (String) -> String? = { "Study plans aren't supported here." },
 ) {
+    // Friends included in "Everyone free"; all of them unless you untick some.
+    var excluded by remember { mutableStateOf(setOf<String>()) }
+    var planMessage by remember { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
     var adding by remember { mutableStateOf(false) }
     var day by remember { mutableIntStateOf(LocalDate.now().dayOfWeek.value.coerceAtMost(6)) }
@@ -92,6 +101,13 @@ fun FriendsScreen(
     var scanError by remember { mutableStateOf<String?>(null) }
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         val text = result.contents ?: return@rememberLauncherForActivityResult
+        // The same scanner takes a friend's study plan as well as their timetable.
+        if (text.contains("ORBITPLAN1:")) {
+            val e = onImportPlan(text)
+            scanError = e
+            planMessage = if (e == null) "Study plan added to Exams → My study plan." else null
+            return@rememberLauncherForActivityResult
+        }
         val err = onImport(text)
         scanError = err
         // Hand the phone back with my code showing, so the friend can add me too.
@@ -124,6 +140,14 @@ fun FriendsScreen(
             })
             RowDivider()
             ListRow("Paste a code", null, chevron = true, onClick = { adding = true })
+            RowDivider()
+            ListRow("Share my study plan", "As a QR your friend scans here", chevron = true, onClick = {
+                if (planCode() == null) planMessage = "Your study plan is empty. Add sessions in Exams → My study plan."
+                else showQr = QrMode.Plan
+            })
+        }
+        planMessage?.let { msg ->
+            item { Text(msg, color = Pastel.Ink, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp)) }
         }
         scanError?.let { msg ->
             item { Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp)) }
@@ -136,10 +160,36 @@ fun FriendsScreen(
 
         item { Segmented(DAYS, day - 1, { day = it + 1 }, Modifier.padding(top = 20.dp)) }
 
-        val gaps = FreeTime.common(listOf(snap.timetable.sessions) + friends.map { it.sessions }, day)
-        section(header = "Everyone free on ${FULL[day - 1]}") {
+        // Group free time: you plus whichever friends are ticked.
+        item {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                friends.forEach { f ->
+                    val on = f.name !in excluded
+                    Text(f.name, style = MaterialTheme.typography.labelLarge, color = Pastel.Ink, maxLines = 1,
+                        modifier = Modifier.brutal(if (on) Pastel.Accent else Pastel.Card, radius = 10.dp, shadow = if (on) 3.dp else 1.dp, border = 1.5.dp)
+                            .clickable { excluded = if (on) excluded + f.name else excluded - f.name }
+                            .padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+            }
+        }
+        val group = friends.filter { it.name !in excluded }
+        val gaps = FreeTime.common(listOf(snap.timetable.sessions) + group.map { it.sessions }, day)
+        section(header = if (group.size == friends.size) "Everyone free on ${FULL[day - 1]}" else "You + ${group.size} free on ${FULL[day - 1]}") {
             if (gaps.isEmpty()) ListRow("No common gap", "Nothing of 30 minutes or more.")
             Rows(gaps) { g -> ListRow("${g.start} – ${g.end}", "${g.minutes / 60}h ${g.minutes % 60}m") }
+        }
+
+        // Class buddies: which friends share each of your courses.
+        val buddies = friends.flatMap { f -> Buddies.shared(snap.timetable.sessions, f.sessions).map { it to f.name } }
+            .groupBy({ it.first.code }, { it })
+        if (buddies.isNotEmpty()) {
+            section(header = "Class buddies") {
+                Rows(buddies.values.toList()) { list ->
+                    ListRow(list.first().first.title,
+                        list.joinToString { (sh, name) -> if (sh.sameClass) "$name (same class)" else name })
+                }
+            }
         }
 
         friends.forEach { f ->
@@ -158,12 +208,14 @@ fun FriendsScreen(
 
     if (adding) AddFriendDialog(onImport) { adding = false }
     showQr?.let { mode ->
-        MyQrDialog(myCode(), alias.ifBlank { snap.regNo }, mode, onScan = { showQr = null; launchScan() }) { showQr = null }
+        MyQrDialog(if (mode is QrMode.Plan) planCode() else myCode(), alias.ifBlank { snap.regNo }, mode,
+            onScan = { showQr = null; launchScan() }) { showQr = null }
     }
 }
 
 private sealed class QrMode {
     data object Mine : QrMode()
+    data object Plan : QrMode()
     data class AfterScan(val friend: String) : QrMode()
 }
 
@@ -174,7 +226,11 @@ private fun MyQrDialog(code: String?, name: String, mode: QrMode, onScan: () -> 
         onDismissRequest = onClose,
         containerColor = Pastel.Page,
         title = {
-            Text(if (mode is QrMode.AfterScan) "Added ${mode.friend.ifBlank { "your friend" }}" else "My timetable")
+            Text(when (mode) {
+                is QrMode.AfterScan -> "Added ${mode.friend.ifBlank { "your friend" }}"
+                QrMode.Plan -> "My study plan"
+                QrMode.Mine -> "My timetable"
+            })
         },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -182,8 +238,12 @@ private fun MyQrDialog(code: String?, name: String, mode: QrMode, onScan: () -> 
                     Text("Now let them scan yours so they get your timetable too.", style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
                 }
+                if (mode is QrMode.Plan) {
+                    Text("Your friend scans this in Friends → Scan a friend's QR.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                }
                 if (bitmap == null) {
-                    Text("Sync your timetable first.", color = MaterialTheme.colorScheme.error)
+                    Text(if (mode is QrMode.Plan) "Your study plan is empty." else "Sync your timetable first.", color = MaterialTheme.colorScheme.error)
                 } else {
                     // QR codes need dark-on-light, so the code sits on white even in dark mode.
                     Box(Modifier.brutal(Color.White, radius = 14.dp).padding(12.dp)) {

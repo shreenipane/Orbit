@@ -62,6 +62,18 @@ object Work {
         } else {
             wm.cancelUniqueWork("weekly")
         }
+        if (settings.smartAlerts) {
+            // Monday 08:00: the week ahead (DAs due, next exam, planned study).
+            val now = LocalDateTime.now()
+            var next = now.toLocalDate().with(java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.MONDAY)).atTime(8, 0)
+            if (!next.isAfter(now)) next = next.plusWeeks(1)
+            val req = PeriodicWorkRequestBuilder<WeekAheadWorker>(7, TimeUnit.DAYS)
+                .setInitialDelay(Duration.between(now, next).toMillis(), TimeUnit.MILLISECONDS)
+                .build()
+            wm.enqueueUniquePeriodicWork("weekahead", ExistingPeriodicWorkPolicy.KEEP, req)
+        } else {
+            wm.cancelUniqueWork("weekahead")
+        }
         if (settings.keepSignedIn) {
             // 15 minutes is the shortest interval Android allows for periodic work.
             val req = PeriodicWorkRequestBuilder<KeepAliveWorker>(15, TimeUnit.MINUTES)
@@ -82,6 +94,14 @@ object Work {
             .addTag(tag)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, req)
+    }
+
+    /** Warns when a sync shows a course falling under 75%, or one miss away from it. */
+    fun postAttendanceAlerts(context: Context, old: Snapshot?, fresh: Snapshot) {
+        if (old == null) return
+        com.shreenipane.orbit.core.calc.AttendanceWatch.alerts(old.attendance, fresh.attendance).take(3).forEachIndexed { i, a ->
+            Notifier.post(context, Notifier.SYNC, 2300 + i, a.courseTitle, a.text)
+        }
     }
 
     /** Re-plans class alerts for today and tomorrow, and exam alerts for the next two weeks. */
@@ -201,6 +221,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             if (notes.size > 5) {
                 Notifier.post(applicationContext, Notifier.SYNC, 2005, "${notes.size - 5} more updates", "Open Orbit to see everything that changed.")
             }
+            if (repo.settings.smartAlerts) Work.postAttendanceAlerts(applicationContext, old, fresh)
             Work.planAlerts(applicationContext, fresh, repo.settings, repo.overrides())
             com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, fresh, repo.overrides())
             Result.success()
@@ -249,6 +270,29 @@ class WeeklyReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
                 com.shreenipane.orbit.core.calc.WeeklyReport.summary(lines))
         }
         repo.saveWeeklyBaseline(snap.attendance)
+        return Result.success()
+    }
+}
+
+/** Monday morning: DAs due this week, the next exam, and what you planned to study. */
+class WeekAheadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val repo = (applicationContext as OrbitApp).repository
+        if (!repo.settings.smartAlerts) return Result.success()
+        val snap = repo.cached() ?: return Result.success()
+        val today = java.time.LocalDate.now()
+        val weekEnd = today.plusDays(6)
+        val das = snap.assignments.filter { !it.submitted }
+            .mapNotNull { d -> ExamTime.parseVtopDate(d.dueDate)?.takeIf { !it.isBefore(today) && !it.isAfter(weekEnd) } }
+        val exam = com.shreenipane.orbit.core.calc.ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions,
+            today, 0, repo.overrides()).firstOrNull()
+        val planned = repo.studyPlan().count { !it.done && it.date >= today.toString() && it.date <= weekEnd.toString() }
+        val parts = listOfNotNull(
+            if (das.isEmpty()) "No DAs due" else "${das.size} DA${if (das.size == 1) "" else "s"} due",
+            exam?.let { "${it.label} in ${it.daysLeft} days" },
+            if (planned > 0) "$planned study session${if (planned == 1) "" else "s"} planned" else null,
+        )
+        Notifier.post(applicationContext, Notifier.SYNC, 2400, "Your week ahead", parts.joinToString(" · "))
         return Result.success()
     }
 }

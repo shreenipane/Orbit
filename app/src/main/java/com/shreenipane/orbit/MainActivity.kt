@@ -42,6 +42,7 @@ class MainActivity : FragmentActivity() {
                 2 -> true
                 else -> isSystemInDarkTheme()
             }
+            androidx.compose.runtime.SideEffect { com.shreenipane.orbit.ui.theme.Pastel.accentIndex = st.settings.accent }
             LaunchedEffect(dark) {
                 val t = android.graphics.Color.TRANSPARENT
                 val style = if (dark) SystemBarStyle.dark(t) else SystemBarStyle.light(t, t)

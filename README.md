@@ -22,7 +22,19 @@ A native Android (Kotlin + Jetpack Compose) app for VIT Vellore students, pulled
 * **FFCS planner:** type slot combos (A1+TA1, L31+L32) to check clashes and credits before registration
 * **Hostel leave:** opens VTOP's own leave form inside the app, already signed in
 * **Past papers:** CodeChef-VIT's question-paper archive for each of your courses, read inside the app, saved to your phone or shared
-* **Study plan:** plan what to revise on which day and tick it off
+* **Study plan:** plan what to revise on which day and tick it off, and share it with friends by QR
+* **Bunk planner:** pick days off and see each course's attendance afterwards
+* **Free slots:** your gaps each day, and who (you and your friends) is free right now
+* **Marks trends:** every assessment per course as bars, CAT 1 → FAT
+* **Semester recap:** attendance, marks and CGPA on one card, shareable as an image
+* **Study timer:** 25/50/90-minute focus sessions with time logged per subject
+* **Notes:** notes and photos per course, kept on the phone
+* **Friends extras:** group free time with the friends you pick, and class buddies (who shares your courses)
+* **Exam week:** Today shows the next paper with venue, seat and reporting time
+* **Widgets:** next class, attendance, and next exam; plus a quick-settings tile for the next class
+* **Smart alerts:** Monday's week ahead, and a warning when a course falls to 75% or under
+* **Faculty info, fees, hostel leave:** VTOP's own pages opened in the app, already signed in
+* **Accent colour:** choose your own in Settings
 * **Home-screen widget** with the next class; **calendar export** (.ics); **backup and restore** of everything kept only on the phone; **weekly attendance report** on Sunday evening; **fee reminders**; light, dark or system theme
 * **Alerts:** before each class, the evening before an exam and an hour before it, and for new marks or absences after a background sync
 * **App lock** with fingerprint, face or screen lock, plus a display name of your choice

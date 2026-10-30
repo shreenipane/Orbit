@@ -13,8 +13,8 @@ android {
         applicationId = "com.shreenipane.orbit"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.9.1"
+        versionCode = 13
+        versionName = "0.10.0"
     }
 
     // A permanent signing key, if CI provides one (see README). Without it the release build is
@@ -40,6 +40,14 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             val permanent = signingConfigs.getByName("release")
             signingConfig = if (permanent.storeFile != null) permanent else signingConfigs.getByName("debug")
+        }
+        // Same as release but shrunk with R8 (much smaller APK). Built by CI as an extra, optional APK:
+        // try it on your phone before relying on it, since shrinking can break code that uses reflection.
+        create("small") {
+            initWith(getByName("release"))
+            isMinifyEnabled = true
+            isShrinkResources = true
+            matchingFallbacks += listOf("release")
         }
     }
     compileOptions {

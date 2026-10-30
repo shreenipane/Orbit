@@ -42,6 +42,41 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".widget.AttendanceWidget"
+            android:label="Attendance"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_attendance_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.ExamWidget"
+            android:label="Next exam"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_exam_info" />
+        </receiver>
+
+        <!-- Quick settings tile: next class. Only the system can bind it (BIND_QUICK_SETTINGS_TILE). -->
+        <service
+            android:name=".widget.NextClassTile"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_orbit"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

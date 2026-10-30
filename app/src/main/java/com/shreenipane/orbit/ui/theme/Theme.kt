@@ -8,6 +8,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
@@ -61,6 +62,14 @@ val DarkPalette = PastelPalette(
  */
 object Pastel {
     var palette by mutableStateOf(LightPalette)
+    /** Your accent colour (Settings → Appearance): selected tabs, buttons and toggles. Index into [ACCENTS]. */
+    var accentIndex by mutableIntStateOf(0)
+    val ACCENTS = listOf("Yellow", "Mint", "Sky", "Lavender", "Salmon", "Green")
+    fun accentAt(i: Int): Color = when (i) {
+        1 -> palette.mint; 2 -> palette.sky; 3 -> palette.lavender; 4 -> palette.salmon; 5 -> palette.green
+        else -> palette.yellow
+    }
+    val Accent get() = accentAt(accentIndex)
     val Page get() = palette.page
     val Card get() = palette.card
     val CardTeal get() = palette.cardTeal

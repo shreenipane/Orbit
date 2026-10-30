@@ -66,6 +66,26 @@ fun LeaveScreen() {
 }
 
 /**
+ * A VTOP page Orbit doesn't read itself (faculty info, fees): opened inside
+ * the app on your session, jumping to the menu matching [menu]. Orbit calls
+ * no VTOP address of its own here, so it can't end your session.
+ */
+@Composable
+fun VtopLinkScreen(title: String, description: String, menu: Regex) {
+    var open by remember { mutableStateOf(false) }
+    OrbitScreen(title = title) {
+        section(footer = "Opens VTOP's own page in the app, already signed in.") {
+            Column(Modifier.padding(16.dp)) {
+                Text(description, style = MaterialTheme.typography.bodyMedium, color = Pastel.Ink,
+                    modifier = Modifier.padding(bottom = 14.dp))
+                BrutalButton("Open on VTOP", { open = true }, Modifier.fillMaxWidth())
+            }
+        }
+    }
+    if (open) VtopPage(title = title, findMenu = menu) { open = false }
+}
+
+/**
  * VTOP inside the app, on the shared session cookies. After the dashboard
  * loads it clicks the first menu link matching [findMenu], so you land on the
  * right page; it only ever clicks menu links, never submits anything.

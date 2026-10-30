@@ -12,7 +12,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.outlined.BeachAccess
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.EventBusy
+import androidx.compose.material.icons.outlined.Payments
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.automirrored.outlined.ShowChart
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Hotel
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.WorkspacePremium
@@ -45,14 +53,22 @@ import com.shreenipane.orbit.ui.settings.SettingsScreen
 
 enum class MoreDestination(val title: String, val subtitle: String, val icon: ImageVector, val group: String) {
     Calendar("Calendar", "Class days, holidays, exams", Icons.Outlined.CalendarMonth, "Academics"),
-    Exams("Exams", "Classes left before each exam", Icons.Outlined.Event, "Academics"),
+    Exams("Exams", "Classes left, papers, your study plan", Icons.Outlined.Event, "Academics"),
+    Trends("Marks trends", "How each assessment went", Icons.AutoMirrored.Outlined.ShowChart, "Academics"),
     Cgpa("CGPA", "Calculator and grade history", Icons.Outlined.School, "Academics"),
     Results("Results", "Grades and grade ranges", Icons.Outlined.WorkspacePremium, "Academics"),
+    Recap("Semester recap", "Your semester on one card", Icons.Outlined.AutoAwesome, "Academics"),
     Holidays("Holidays", "Next break and all breaks", Icons.Outlined.BeachAccess, "Academics"),
     Reminders("Deadlines", "DAs and reminders", Icons.AutoMirrored.Outlined.Assignment, "Plan"),
+    Bunk("Bunk planner", "Pick days off, see your attendance", Icons.Outlined.EventBusy, "Plan"),
+    FreeSlots("Free slots", "Your gaps and who's free now", Icons.Outlined.Schedule, "Plan"),
+    Timer("Study timer", "Focus sessions, time per subject", Icons.Outlined.Timer, "Plan"),
+    Notes("Notes", "Notes and photos per course", Icons.AutoMirrored.Outlined.StickyNote2, "Plan"),
     Planner("FFCS planner", "Check slot clashes", Icons.Outlined.GridView, "Plan"),
     Leave("Leave", "Apply for hostel leave", Icons.Outlined.Hotel, "Hostel"),
-    Friends("Friends", "Swap timetables by QR", Icons.Outlined.Groups, "People"),
+    Faculty("Faculty info", "Cabins and contacts on VTOP", Icons.Outlined.Badge, "VTOP pages"),
+    Fees("Fees & payments", "Dues and receipts on VTOP", Icons.Outlined.Payments, "VTOP pages"),
+    Friends("Friends", "Timetables, plans, free time", Icons.Outlined.Groups, "People"),
     Settings("Settings", "Theme, alerts, backup", Icons.Outlined.Settings, "App"),
 }
 
@@ -117,7 +133,18 @@ fun MoreScreen(
                 MoreDestination.Results -> com.shreenipane.orbit.ui.results.ResultsScreen(snap, vm)
                 MoreDestination.Planner -> com.shreenipane.orbit.ui.planner.PlannerScreen(snap, state.planner, vm::upsertPlanned, vm::removePlanned)
                 MoreDestination.Leave -> com.shreenipane.orbit.ui.hostel.LeaveScreen()
-                MoreDestination.Friends -> FriendsScreen(snap, state.friends, vm::myShareCode, vm::importFriend, vm::removeFriend, state.settings.alias)
+                MoreDestination.Trends -> com.shreenipane.orbit.ui.tools.TrendsScreen(snap)
+                MoreDestination.Recap -> com.shreenipane.orbit.ui.tools.RecapScreen(snap, state.settings.alias.ifBlank { snap.regNo })
+                MoreDestination.Bunk -> com.shreenipane.orbit.ui.tools.BunkScreen(snap, state.overrides)
+                MoreDestination.FreeSlots -> com.shreenipane.orbit.ui.tools.FreeSlotsScreen(snap, state.friends)
+                MoreDestination.Timer -> com.shreenipane.orbit.ui.tools.TimerScreen(snap, state.studyPlan, state.studyLog, vm::logStudy)
+                MoreDestination.Notes -> com.shreenipane.orbit.ui.tools.NotesScreen(snap, state.notes, vm)
+                MoreDestination.Faculty -> com.shreenipane.orbit.ui.hostel.VtopLinkScreen("Faculty info",
+                    "Look up a faculty member's cabin, e-mail and open hours.", Regex("faculty|employee", RegexOption.IGNORE_CASE))
+                MoreDestination.Fees -> com.shreenipane.orbit.ui.hostel.VtopLinkScreen("Fees & payments",
+                    "See fees due and download receipts.", Regex("payment|fees", RegexOption.IGNORE_CASE))
+                MoreDestination.Friends -> FriendsScreen(snap, state.friends, vm::myShareCode, vm::importFriend, vm::removeFriend, state.settings.alias,
+                    planCode = vm::myPlanCode, onImportPlan = vm::importPlan)
                 MoreDestination.Settings -> SettingsScreen(state, canUseLock, vm)
             }
         }

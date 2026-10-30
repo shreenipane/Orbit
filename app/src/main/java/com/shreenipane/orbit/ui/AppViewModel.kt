@@ -53,6 +53,8 @@ data class UiState(
     val overrides: List<ClassOverride> = emptyList(),
     val planner: List<PlannedCourse> = emptyList(),
     val studyPlan: List<com.shreenipane.orbit.core.model.StudyItem> = emptyList(),
+    val studyLog: List<com.shreenipane.orbit.core.model.StudySession> = emptyList(),
+    val notes: List<com.shreenipane.orbit.core.model.CourseNote> = emptyList(),
 )
 
 /** Progress of a DA upload, shown in the DA sheet. */
@@ -77,7 +79,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                 it.copy(
                     loading = false, snapshot = cached, showLogin = cached == null,
                     reminders = repo.reminders(), friends = repo.friends(),
-                    overrides = repo.overrides(), planner = repo.planner(), studyPlan = repo.studyPlan(),
+                    overrides = repo.overrides(), planner = repo.planner(), studyPlan = repo.studyPlan(), studyLog = repo.studyLog(), notes = repo.notes(),
                 )
             }
             if (cached != null) refresh(silent = true)
@@ -116,8 +118,10 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         viewModelScope.launch {
             _state.update { it.copy(refreshing = true, message = null) }
             try {
+                val before = _state.value.snapshot
                 val snap = repo.refresh(semesterId)
                 _state.update { it.copy(snapshot = snap, refreshing = false, sessionExpired = false) }
+                if (repo.settings.smartAlerts) Work.postAttendanceAlerts(app, before, snap)
                 Work.planAlerts(app, snap, repo.settings, _state.value.overrides)
                 OrbitWidget.update(app, snap, _state.value.overrides)
             } catch (e: SessionExpiredException) {
@@ -172,7 +176,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         repo.settings = next
         _state.update { it.copy(settings = next) }
         if (next.backgroundSync != prev.backgroundSync || next.keepSignedIn != prev.keepSignedIn) Work.ensurePeriodic(app, next)
-        if (next.weeklyReport != prev.weeklyReport) Work.ensurePeriodic(app, next)
+        if (next.weeklyReport != prev.weeklyReport || next.smartAlerts != prev.smartAlerts) Work.ensurePeriodic(app, next)
         if (next.classAlerts != prev.classAlerts || next.classAlertLeadMinutes != prev.classAlertLeadMinutes ||
             next.examAlerts != prev.examAlerts
         ) Work.planAlerts(app, _state.value.snapshot, next, _state.value.overrides)
@@ -298,6 +302,62 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         viewModelScope.launch { repo.saveStudyPlan(next) }
     }
 
+    // ---------- study timer & notes ----------
+
+    fun logStudy(subject: String, minutes: Int) {
+        if (minutes <= 0 || subject.isBlank()) return
+        val next = _state.value.studyLog + com.shreenipane.orbit.core.model.StudySession(
+            System.currentTimeMillis(), java.time.LocalDate.now().toString(), subject.trim(), minutes)
+        _state.update { it.copy(studyLog = next) }
+        viewModelScope.launch { repo.saveStudyLog(next) }
+    }
+
+    fun upsertNote(n: com.shreenipane.orbit.core.model.CourseNote) = editNotes { list -> list.filterNot { it.id == n.id } + n }
+    fun removeNote(n: com.shreenipane.orbit.core.model.CourseNote) {
+        n.photo?.let { name -> runCatching { java.io.File(repo.notePhotoDir(), name).delete() } }
+        editNotes { list -> list.filterNot { it.id == n.id } }
+    }
+    private fun editNotes(edit: (List<com.shreenipane.orbit.core.model.CourseNote>) -> List<com.shreenipane.orbit.core.model.CourseNote>) {
+        val next = edit(_state.value.notes).sortedByDescending { it.createdAt }
+        _state.update { it.copy(notes = next) }
+        viewModelScope.launch { repo.saveNotes(next) }
+    }
+
+    /** Copies a picked photo into private storage, shrunk to at most 1600 px. Returns the stored file name. */
+    suspend fun importNotePhoto(uri: android.net.Uri): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching {
+            val resolver = app.contentResolver
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
+            val bmp = resolver.openInputStream(uri)?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+            } ?: return@runCatching null
+            val name = "note-${System.currentTimeMillis()}.jpg"
+            java.io.File(repo.notePhotoDir(), name).outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }
+            bmp.recycle()
+            name
+        }.getOrNull()
+    }
+
+    fun notePhotoFile(name: String): java.io.File = java.io.File(repo.notePhotoDir(), name)
+
+    /** Imports a friend's study plan code; returns an error message or null. */
+    fun importPlan(text: String): String? {
+        val plan = com.shreenipane.orbit.core.calc.PlanCode.decode(text) ?: return "That doesn't look like an Orbit study plan."
+        if (plan.items.isEmpty()) return "That plan is empty."
+        editStudy { list -> list + plan.items }
+        return null
+    }
+
+    fun myPlanCode(): String? {
+        val items = _state.value.studyPlan.filter { !it.done }
+        if (items.isEmpty()) return null
+        val name = _state.value.settings.alias.ifBlank { _state.value.snapshot?.regNo.orEmpty() }
+        return com.shreenipane.orbit.core.calc.PlanCode.encode(name, items)
+    }
+
     // ---------- FFCS planner ----------
 
     fun upsertPlanned(c: PlannedCourse) = editPlanner { list -> list.filterNot { it.id == c.id } + c }
@@ -336,7 +396,8 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                 val b = repo.restore(text)
                 _state.update {
                     it.copy(reminders = repo.reminders(), friends = repo.friends(), overrides = repo.overrides(),
-                        planner = repo.planner(), studyPlan = repo.studyPlan(), settings = repo.settings,
+                        planner = repo.planner(), studyPlan = repo.studyPlan(), studyLog = repo.studyLog(), notes = repo.notes(),
+                        settings = repo.settings,
                         message = "Restored ${b.reminders.size} reminders, ${b.friends.size} friends, ${b.planner.size} planned courses.")
                 }
                 repo.reminders().forEach { Work.scheduleReminder(app, it) }

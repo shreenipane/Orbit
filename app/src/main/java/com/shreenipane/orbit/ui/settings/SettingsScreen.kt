@@ -3,6 +3,11 @@ package com.shreenipane.orbit.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -103,6 +108,21 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
                     { i -> vm.updateSettings { it.copy(themeMode = i) } },
                 )
             }
+            RowDivider()
+            // Accent colour: selected tabs, buttons and chips.
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween) {
+                com.shreenipane.orbit.ui.theme.Pastel.ACCENTS.indices.forEach { i ->
+                    val on = s.accent == i
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.size(if (on) 40.dp else 34.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(com.shreenipane.orbit.ui.theme.Pastel.accentAt(i))
+                            .border(if (on) 3.dp else 1.5.dp, com.shreenipane.orbit.ui.theme.Pastel.Line, androidx.compose.foundation.shape.CircleShape)
+                            .clickable { vm.updateSettings { it.copy(accent = i) } },
+                    )
+                }
+            }
         }
 
         section(header = "Academics", footer = null) {
@@ -182,6 +202,10 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             RowDivider()
             Toggle("Weekly report", "Sunday evening: classes attended and how each subject moved", s.weeklyReport) { v ->
                 vm.updateSettings { it.copy(weeklyReport = v) }
+            }
+            RowDivider()
+            Toggle("Smart alerts", "Monday's week ahead, and a warning when a course nears 75%", s.smartAlerts) { v ->
+                vm.updateSettings { it.copy(smartAlerts = v) }
             }
         }
 

@@ -34,6 +34,10 @@ data class AppSettings(
     /** 0 = follow the phone, 1 = light, 2 = dark. */
     val themeMode: Int = 0,
     val weeklyReport: Boolean = true,
+    /** Accent colour index, see Pastel.ACCENTS. */
+    val accent: Int = 0,
+    /** Monday-morning "week ahead" summary and attendance-drop warnings. */
+    val smartAlerts: Boolean = true,
     /** Credits your curriculum needs per category (code → credits), entered on the CGPA screen. */
     val creditTargets: Map<String, Double> = emptyMap(),
 )
@@ -82,6 +86,8 @@ class Repository(private val context: Context) {
             keepSignedIn = prefs.getBoolean("keep_alive", true),
             themeMode = prefs.getInt("theme", 0),
             weeklyReport = prefs.getBoolean("weekly", true),
+            accent = prefs.getInt("accent", 0),
+            smartAlerts = prefs.getBoolean("smart_alerts", true),
             creditTargets = (prefs.getString("credit_targets", "") ?: "").split(';').mapNotNull { e ->
                 val k = e.substringBefore('=', ""); val v = e.substringAfter('=', "").toDoubleOrNull()
                 if (k.isBlank() || v == null) null else k to v
@@ -97,6 +103,8 @@ class Repository(private val context: Context) {
             .putBoolean("keep_alive", s.keepSignedIn)
             .putInt("theme", s.themeMode)
             .putBoolean("weekly", s.weeklyReport)
+            .putInt("accent", s.accent)
+            .putBoolean("smart_alerts", s.smartAlerts)
             .putString("credit_targets", s.creditTargets.entries.joinToString(";") { "${it.key}=${it.value}" })
             .apply()
 
@@ -133,6 +141,19 @@ class Repository(private val context: Context) {
     suspend fun planner(): List<PlannedCourse> = read("planner.json", ListSerializer(PlannedCourse.serializer())) ?: emptyList()
     suspend fun savePlanner(list: List<PlannedCourse>) = write("planner.json", ListSerializer(PlannedCourse.serializer()), list)
 
+    suspend fun studyLog(): List<com.shreenipane.orbit.core.model.StudySession> =
+        read("study_log.json", ListSerializer(com.shreenipane.orbit.core.model.StudySession.serializer())) ?: emptyList()
+    suspend fun saveStudyLog(list: List<com.shreenipane.orbit.core.model.StudySession>) =
+        write("study_log.json", ListSerializer(com.shreenipane.orbit.core.model.StudySession.serializer()), list)
+
+    suspend fun notes(): List<com.shreenipane.orbit.core.model.CourseNote> =
+        read("notes.json", ListSerializer(com.shreenipane.orbit.core.model.CourseNote.serializer())) ?: emptyList()
+    suspend fun saveNotes(list: List<com.shreenipane.orbit.core.model.CourseNote>) =
+        write("notes.json", ListSerializer(com.shreenipane.orbit.core.model.CourseNote.serializer()), list)
+
+    /** Where note photos live: app-private, not shared with other apps unless you share one. */
+    fun notePhotoDir(): File = File(context.filesDir, "notes").apply { mkdirs() }
+
     suspend fun studyPlan(): List<com.shreenipane.orbit.core.model.StudyItem> =
         read("study_plan.json", ListSerializer(com.shreenipane.orbit.core.model.StudyItem.serializer())) ?: emptyList()
     suspend fun saveStudyPlan(list: List<com.shreenipane.orbit.core.model.StudyItem>) =
@@ -153,13 +174,17 @@ class Repository(private val context: Context) {
         val overrides: List<ClassOverride> = emptyList(),
         val planner: List<PlannedCourse> = emptyList(),
         val studyPlan: List<com.shreenipane.orbit.core.model.StudyItem> = emptyList(),
+        val studyLog: List<com.shreenipane.orbit.core.model.StudySession> = emptyList(),
+        /** Note text only; photos stay on the phone. */
+        val notes: List<com.shreenipane.orbit.core.model.CourseNote> = emptyList(),
         val alias: String = "",
     )
 
     /** Everything that lives only on this phone, as JSON. VTOP data isn't included; it re-syncs. */
     suspend fun backupJson(): String = json.encodeToString(
         Backup.serializer(),
-        Backup(reminders = reminders(), friends = friends(), overrides = overrides(), planner = planner(), studyPlan = studyPlan(), alias = settings.alias),
+        Backup(reminders = reminders(), friends = friends(), overrides = overrides(), planner = planner(), studyPlan = studyPlan(), studyLog = studyLog(),
+            notes = notes().map { it.copy(photo = null) }, alias = settings.alias),
     )
 
     /** Restores a backup, merging with what's already here (backup wins on clashes). */
@@ -170,6 +195,8 @@ class Repository(private val context: Context) {
         saveOverrides(overrides().filterNot { o -> b.overrides.any { it.id == o.id } } + b.overrides)
         savePlanner(planner().filterNot { p -> b.planner.any { it.id == p.id } } + b.planner)
         saveStudyPlan(studyPlan().filterNot { p -> b.studyPlan.any { it.id == p.id } } + b.studyPlan)
+        saveStudyLog(studyLog().filterNot { p -> b.studyLog.any { it.id == p.id } } + b.studyLog)
+        saveNotes(notes().filterNot { p -> b.notes.any { it.id == p.id } } + b.notes)
         if (b.alias.isNotBlank() && settings.alias.isBlank()) settings = settings.copy(alias = b.alias)
         return b
     }

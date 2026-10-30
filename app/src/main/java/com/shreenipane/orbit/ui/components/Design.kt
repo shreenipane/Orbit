@@ -144,7 +144,7 @@ fun LazyListScope.section(
                     if (action != null) {
                         Text(
                             action.first, style = MaterialTheme.typography.labelLarge, color = Pastel.Ink,
-                            modifier = Modifier.brutal(Pastel.Yellow, radius = 8.dp, shadow = 2.dp, border = 1.5.dp)
+                            modifier = Modifier.brutal(Pastel.Accent, radius = 8.dp, shadow = 2.dp, border = 1.5.dp)
                                 .clickable(onClick = action.second).padding(horizontal = 10.dp, vertical = 3.dp),
                         )
                     }
@@ -273,7 +273,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
                 Modifier
                     .weight(1f)
                     .then(
-                        if (on) Modifier.clip(RoundedCornerShape(9.dp)).background(Pastel.Yellow)
+                        if (on) Modifier.clip(RoundedCornerShape(9.dp)).background(Pastel.Accent)
                             .border(1.5.dp, Pastel.Line, RoundedCornerShape(9.dp))
                         else Modifier.clip(RoundedCornerShape(9.dp)),
                     )
@@ -297,7 +297,7 @@ fun BrutalButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    fill: Color = Pastel.Yellow,
+    fill: Color = Pastel.Accent,
     enabled: Boolean = true,
     leading: (@Composable () -> Unit)? = null,
 ) {
@@ -342,7 +342,7 @@ fun Banner(text: String, action: String, onAction: () -> Unit) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = Pastel.Ink, modifier = Modifier.weight(1f))
         Text(
             action, style = MaterialTheme.typography.labelLarge, color = Pastel.Ink,
-            modifier = Modifier.brutal(Pastel.Yellow, radius = 8.dp, shadow = 2.dp, border = 1.5.dp)
+            modifier = Modifier.brutal(Pastel.Accent, radius = 8.dp, shadow = 2.dp, border = 1.5.dp)
                 .clickable(onClick = onAction).padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }

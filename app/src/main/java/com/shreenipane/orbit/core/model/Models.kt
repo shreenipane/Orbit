@@ -266,6 +266,14 @@ data class GradeRange(val grade: String, val range: String)
 data class GradeStats(val classStrength: String, val mean: String, val sd: String, val ranges: List<GradeRange>)
 
 /** A course added to the FFCS planner: a slot combination like "A1+TA1" or "L31+L32". */
+/** Time spent with the study timer: [minutes] on [subject] on [date] (ISO). */
+@Serializable
+data class StudySession(val id: Long, val date: String, val subject: String, val minutes: Int)
+
+/** A note on a course, optionally with a photo kept in the app's private storage. */
+@Serializable
+data class CourseNote(val id: Long, val courseCode: String, val courseTitle: String, val text: String, val photo: String? = null, val createdAt: Long = id)
+
 /** One entry of your own study plan: what to revise on which day. */
 @Serializable
 data class StudyItem(val id: Long, val date: String, val subject: String, val topic: String = "", val done: Boolean = false)

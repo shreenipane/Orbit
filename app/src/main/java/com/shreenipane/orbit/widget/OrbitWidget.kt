@@ -81,6 +81,9 @@ class OrbitWidget : AppWidgetProvider() {
 
         /** Re-renders every placed widget. Safe to call from anywhere; no-ops if none are placed. */
         fun update(context: Context, snap: Snapshot?, overrides: List<ClassOverride>) {
+            // The attendance and exam widgets refresh whenever this one does.
+            runCatching { AttendanceWidget.update(context, snap, overrides) }
+            runCatching { ExamWidget.update(context, snap, overrides) }
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, OrbitWidget::class.java))
             if (ids.isEmpty()) return

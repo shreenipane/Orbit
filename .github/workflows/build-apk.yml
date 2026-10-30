@@ -53,10 +53,21 @@ jobs:
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk orbit-${{ github.run_number }}.apk
 
+      # Optional smaller build (R8 shrinking). If it fails, the normal APK above still ships.
+      - name: Build small APK
+        continue-on-error: true
+        env:
+          ORBIT_KEYSTORE_PASSWORD: ${{ secrets.ORBIT_KEYSTORE_PASSWORD }}
+          ORBIT_KEY_ALIAS: ${{ secrets.ORBIT_KEY_ALIAS }}
+          ORBIT_KEY_PASSWORD: ${{ secrets.ORBIT_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon assembleSmall
+          cp app/build/outputs/apk/small/app-small.apk orbit-${{ github.run_number }}-small.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: orbit-apk
-          path: orbit-${{ github.run_number }}.apk
+          path: orbit-${{ github.run_number }}*.apk
 
       # A prerelease per build, so the APK can be downloaded straight from a phone.
       - uses: softprops/action-gh-release@v2
@@ -64,7 +75,8 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Orbit build ${{ github.run_number }}
           prerelease: true
-          files: orbit-${{ github.run_number }}.apk
+          files: orbit-${{ github.run_number }}*.apk
           body: |
             Release build from ${{ github.sha }}.
+            orbit-N.apk is the normal build. orbit-N-small.apk (if present) is the same app shrunk with R8; try it before relying on it.
             Install: download the APK on your phone, open it, and allow installs from your browser or file manager if asked.

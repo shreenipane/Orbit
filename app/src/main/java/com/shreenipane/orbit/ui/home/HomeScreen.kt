@@ -112,6 +112,23 @@ fun HomeScreen(
         refreshing = refreshing,
         onRefresh = onRefresh,
     ) {
+        // Exam week: the next paper within 7 days gets the top spot.
+        val paper = remember(snap.exams, now.toLocalDate(), now.hour) {
+            ExamTime.upcoming(snap.exams, now).firstOrNull()?.takeIf { (_, at) -> !at.toLocalDate().isAfter(now.toLocalDate().plusDays(7)) }
+        }
+        if (paper != null) {
+            item { ExamCard(paper.first, paper.second, now) }
+        } else if (countdown != null && countdown.daysLeft <= 7) {
+            item {
+                Hero(Pastel.Salmon, Modifier.padding(bottom = 14.dp)) {
+                    Tag(if (countdown.daysLeft == 0L) "${countdown.label} starts today" else "${countdown.label} in ${countdown.daysLeft} days",
+                        com.shreenipane.orbit.ui.theme.Bad)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Exam week is coming", style = MaterialTheme.typography.headlineMedium, color = Pastel.Ink)
+                    Text("Paper dates appear here once VTOP publishes the schedule.", style = MaterialTheme.typography.bodyMedium, color = Pastel.Ink)
+                }
+            }
+        }
         item { NowCard(sched) }
 
         item {
@@ -219,6 +236,22 @@ fun HomeScreen(
 
     acting?.let { s ->
         com.shreenipane.orbit.ui.timetable.ClassActionSheet(s, today, overrides, onToggleCancel, onRemoveOverride) { acting = null }
+    }
+}
+
+@Composable
+private fun ExamCard(e: com.shreenipane.orbit.core.model.Exam, at: LocalDateTime, now: LocalDateTime) {
+    val days = ChronoUnit.DAYS.between(now.toLocalDate(), at.toLocalDate())
+    Hero(Pastel.Salmon, Modifier.padding(bottom = 14.dp)) {
+        Tag("${e.examType} · " + when (days) { 0L -> "today"; 1L -> "tomorrow"; else -> "in $days days" }, com.shreenipane.orbit.ui.theme.Bad)
+        Spacer(Modifier.height(8.dp))
+        Text(e.courseTitle, style = MaterialTheme.typography.headlineMedium, color = Pastel.Ink)
+        Text(at.format(DateTimeFormatter.ofPattern("EEE d MMM · h:mm a")), style = MaterialTheme.typography.bodyMedium, color = Pastel.Ink)
+        val where = listOf(e.venue, e.seatLocation.takeIf { it.isNotBlank() }?.let { "Seat $it" }).filterNotNull().filter { it.isNotBlank() }
+        if (where.isNotEmpty()) Text(where.joinToString(" · "), style = MaterialTheme.typography.titleMedium, color = Pastel.Ink)
+        if (e.reportingTime.isNotBlank()) {
+            Text("Report by ${e.reportingTime}", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
+        }
     }
 }
 

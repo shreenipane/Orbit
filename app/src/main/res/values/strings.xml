@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">Orbit</string>
     <string name="widget_description">Your current or next class, attendance and next deadline</string>
+    <string name="widget_attendance_description">Your lowest attendance and what to do about it</string>
+    <string name="widget_exam_description">Countdown to your next exam, with venue and seat</string>
+    <string name="tile_label">Next class</string>
 </resources>

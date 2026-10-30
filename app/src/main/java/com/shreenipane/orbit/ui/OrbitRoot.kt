@@ -207,7 +207,7 @@ private fun OrbitTabBar(selected: Int, onSelect: (Int) -> Unit) {
             ) {
                 Box(
                     Modifier.size(width = 56.dp, height = 30.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
-                        .background(if (on) P.Yellow else androidx.compose.ui.graphics.Color.Transparent),
+                        .background(if (on) P.Accent else androidx.compose.ui.graphics.Color.Transparent),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(t.icon, contentDescription = t.label, tint = if (on) P.Ink else P.InkMuted, modifier = Modifier.size(22.dp))
