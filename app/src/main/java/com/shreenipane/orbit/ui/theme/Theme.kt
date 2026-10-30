@@ -14,54 +14,67 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// A night-sky palette with warm accents: deep indigo, sunny yellow, coral.
-private val Indigo = Color(0xFF3D348B)
-private val IndigoLight = Color(0xFFC5BFFF)
-private val Sun = Color(0xFFFFD166)
-private val Coral = Color(0xFFFF7B6B)
-private val Mint = Color(0xFF2EC4B6)
+// Calm, grouped-list look: grey canvas, white cards, one indigo accent.
+private val Accent = Color(0xFF4F46E5)
+private val AccentDark = Color(0xFF8B8CFF)
 
-val Good = Color(0xFF2EAF7D)
-val Warn = Color(0xFFF2A541)
+val Good = Color(0xFF30B35A)
+val Warn = Color(0xFFF59E0B)
 val Bad = Color(0xFFE5484D)
 
 private val Light = lightColorScheme(
-    primary = Indigo, onPrimary = Color.White,
-    primaryContainer = Color(0xFFE4DFFF), onPrimaryContainer = Color(0xFF140C4D),
-    secondary = Coral, onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFFE1DC), onSecondaryContainer = Color(0xFF3E0702),
-    tertiary = Mint, tertiaryContainer = Color(0xFFCFF5F0),
-    background = Color(0xFFFBF8FF), surface = Color(0xFFFBF8FF),
-    surfaceContainer = Color(0xFFF1EDF9), surfaceContainerHigh = Color(0xFFEAE6F3),
+    primary = Accent, onPrimary = Color.White,
+    primaryContainer = Color(0xFFEEF0FF), onPrimaryContainer = Color(0xFF1E1A6B),
+    secondary = Accent, onSecondary = Color.White,
+    secondaryContainer = Color(0xFFEEF0FF), onSecondaryContainer = Color(0xFF1E1A6B),
+    tertiary = Accent, tertiaryContainer = Color(0xFFEEF0FF),
+    background = Color(0xFFF2F2F7), onBackground = Color(0xFF111114),
+    surface = Color.White, onSurface = Color(0xFF111114),
+    surfaceVariant = Color(0xFFF2F2F7), onSurfaceVariant = Color(0xFF6B6B74),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color.White,
+    surfaceContainer = Color.White, surfaceContainerHigh = Color(0xFFF2F2F7), surfaceContainerHighest = Color(0xFFE9E9EF),
+    outline = Color(0xFFD1D1D6), outlineVariant = Color(0xFFE5E5EA),
 )
 
 private val Dark = darkColorScheme(
-    primary = IndigoLight, onPrimary = Color(0xFF241A73),
-    primaryContainer = Color(0xFF3D348B), onPrimaryContainer = Color(0xFFE4DFFF),
-    secondary = Color(0xFFFFB4A8), secondaryContainer = Color(0xFF7A2A20),
-    tertiary = Color(0xFF7BDFF2), tertiaryContainer = Color(0xFF00504A),
-    background = Color(0xFF13111F), surface = Color(0xFF13111F),
-    surfaceContainer = Color(0xFF1F1C2E), surfaceContainerHigh = Color(0xFF2A2639),
+    primary = AccentDark, onPrimary = Color(0xFF14104A),
+    primaryContainer = Color(0xFF26245A), onPrimaryContainer = Color(0xFFE2E1FF),
+    secondary = AccentDark, onSecondary = Color(0xFF14104A),
+    secondaryContainer = Color(0xFF26245A), onSecondaryContainer = Color(0xFFE2E1FF),
+    tertiary = AccentDark, tertiaryContainer = Color(0xFF26245A),
+    background = Color.Black, onBackground = Color(0xFFF2F2F7),
+    surface = Color(0xFF1C1C1E), onSurface = Color(0xFFF2F2F7),
+    surfaceVariant = Color(0xFF1C1C1E), onSurfaceVariant = Color(0xFF8E8E93),
+    surfaceContainerLowest = Color(0xFF1C1C1E), surfaceContainerLow = Color(0xFF1C1C1E),
+    surfaceContainer = Color(0xFF1C1C1E), surfaceContainerHigh = Color(0xFF2C2C2E), surfaceContainerHighest = Color(0xFF3A3A3C),
+    outline = Color(0xFF48484A), outlineVariant = Color(0xFF38383A),
 )
 
 private val AppShapes = Shapes(
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 private val AppType = Typography().run {
     copy(
-        displaySmall = displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1).sp),
-        headlineMedium = headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-        titleLarge = titleLarge.copy(fontWeight = FontWeight.Bold),
-        titleMedium = titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        labelLarge = labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        displaySmall = displaySmall.copy(fontWeight = FontWeight.Bold, fontSize = 34.sp, letterSpacing = (-0.5).sp),
+        headlineLarge = headlineLarge.copy(fontWeight = FontWeight.Bold, fontSize = 32.sp, letterSpacing = (-0.5).sp),
+        headlineMedium = headlineMedium.copy(fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = (-0.3).sp),
+        titleLarge = titleLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 20.sp),
+        titleMedium = titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, letterSpacing = 0.sp),
+        bodyLarge = bodyLarge.copy(fontSize = 16.sp, letterSpacing = 0.sp),
+        bodyMedium = bodyMedium.copy(fontSize = 14.sp, letterSpacing = 0.sp),
+        bodySmall = bodySmall.copy(fontSize = 13.sp, letterSpacing = 0.sp),
+        labelLarge = labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
+        labelMedium = labelMedium.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.sp),
     )
 }
 
-val Accent = Sun
-val NumberStyle = TextStyle(fontWeight = FontWeight.Black, fontSize = 28.sp, letterSpacing = (-0.5).sp)
+/** Big tabular numbers for stats. */
+val NumberStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 28.sp, letterSpacing = (-0.5).sp)
 
 @Composable
 fun OrbitTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
@@ -73,7 +86,7 @@ fun OrbitTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () ->
     )
 }
 
-/** Green at or above 75%, amber just above the line, red below. */
+/** Green at or above 80%, amber between 75 and 80, red below 75. */
 fun attendanceColor(percent: Double): Color = when {
     percent < 75.0 -> Bad
     percent < 80.0 -> Warn

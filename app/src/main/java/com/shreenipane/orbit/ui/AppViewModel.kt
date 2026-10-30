@@ -34,10 +34,16 @@ data class UiState(
     val reminders: List<Reminder> = emptyList(),
     val friends: List<Friend> = emptyList(),
     val settings: AppSettings = AppSettings(),
+    /** Registration number in the fingerprint locker, if a login is saved. */
+    val savedLogin: String? = null,
+    /** Calendar class group the user chose; null = automatic (General (Flexible)). */
+    val classGroup: String? = null,
 )
 
 class AppViewModel(private val app: Application, private val repo: Repository) : ViewModel() {
-    private val _state = MutableStateFlow(UiState(campus = repo.campus, settings = repo.settings))
+    private val _state = MutableStateFlow(
+        UiState(campus = repo.campus, settings = repo.settings, savedLogin = repo.vault.savedRegNo, classGroup = repo.classGroupId),
+    )
     val state: StateFlow<UiState> = _state
 
     init {
@@ -101,8 +107,29 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         viewModelScope.launch {
             repo.signOut()
             Work.planAlerts(app, null, repo.settings)
-            _state.update { it.copy(snapshot = null, showLogin = true, sessionExpired = false) }
+            _state.update { it.copy(snapshot = null, showLogin = true, sessionExpired = false, savedLogin = null) }
         }
+    }
+
+    // ---------- credential locker ----------
+
+    val vault get() = repo.vault
+
+    /** Called after a fingerprint-confirmed save or removal so the UI reflects the locker. */
+    fun lockerChanged() = _state.update { it.copy(savedLogin = repo.vault.savedRegNo) }
+
+    fun removeSavedLogin() {
+        repo.vault.clear()
+        lockerChanged()
+    }
+
+    // ---------- calendar ----------
+
+    /** null = automatic. Refetches so classes-left counts use the new group. */
+    fun setClassGroup(name: String?) {
+        repo.classGroupId = name
+        _state.update { it.copy(classGroup = name) }
+        refresh()
     }
 
     // ---------- settings ----------

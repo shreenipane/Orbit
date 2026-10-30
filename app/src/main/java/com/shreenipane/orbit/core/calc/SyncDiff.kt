@@ -38,6 +38,11 @@ object SyncDiff {
             .groupBy { it.examType }
             .forEach { (type, list) -> notes += Note("$type schedule posted", list.joinToString { it.courseCode + " " + it.date }) }
 
+        val oldDas = previous.assignments.map { it.classId + it.title }.toSet()
+        current.assignments.filter { (it.classId + it.title) !in oldDas }.forEach { da ->
+            notes += Note("New DA: ${da.title}", "${da.courseTitle} · due ${da.dueDate}")
+        }
+
         return notes
     }
 }

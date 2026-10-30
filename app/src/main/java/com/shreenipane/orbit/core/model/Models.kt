@@ -124,6 +124,48 @@ data class Exam(
     val seatNumber: String,
 )
 
+@Serializable
+enum class DayKind { INSTRUCTIONAL, EXAM, HOLIDAY, NO_INSTRUCTION, UNKNOWN }
+
+/** One date from VTOP's academic calendar, already filtered to the user's class group. */
+@Serializable
+data class CalendarDay(
+    /** ISO date, "2026-08-17". */
+    val date: String,
+    val kind: DayKind,
+    /** "CAT1", "CAT2" or "FAT" on exam days. */
+    val exam: String? = null,
+    /** ISO weekday whose timetable runs on this date (Saturday "Monday day order" → 1). */
+    val dayOrder: Int? = null,
+    val label: String = "",
+)
+
+@Serializable
+data class AcademicCalendar(
+    val classGroupId: String,
+    val classGroupName: String,
+    val days: List<CalendarDay>,
+)
+
+/** One digital assignment (DA) from VTOP. */
+@Serializable
+data class DigitalAssignment(
+    val courseCode: String,
+    val courseTitle: String,
+    val courseType: String,
+    val classId: String,
+    val title: String,
+    val maxMark: String,
+    val weightage: String,
+    /** As VTOP shows it, e.g. "21-Nov-2026". */
+    val dueDate: String,
+    /** e.g. "File Not Uploaded" or an upload timestamp. */
+    val status: String,
+) {
+    val submitted: Boolean
+        get() = status.isNotBlank() && !status.contains("Not Uploaded", ignoreCase = true) && status != "-"
+}
+
 /** Everything the app shows, cached to disk so it opens offline. */
 @Serializable
 data class Snapshot(
@@ -136,6 +178,8 @@ data class Snapshot(
     val marks: List<CourseMarks> = emptyList(),
     val grades: GradeHistory? = null,
     val exams: List<Exam> = emptyList(),
+    val calendar: AcademicCalendar? = null,
+    val assignments: List<DigitalAssignment> = emptyList(),
     val fetchedAtMillis: Long = 0,
 )
 

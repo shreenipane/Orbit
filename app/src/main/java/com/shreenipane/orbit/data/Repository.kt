@@ -36,6 +36,7 @@ class Repository(private val context: Context) {
     private val prefs = context.getSharedPreferences("orbit", Context.MODE_PRIVATE)
     private val ioLock = Mutex()
     val cookieJar = WebViewCookieJar()
+    val vault = CredentialVault(context)
 
     // ---------- small prefs ----------
 
@@ -46,6 +47,11 @@ class Repository(private val context: Context) {
     var pinnedSemesterId: String?
         get() = prefs.getString("semester", null)
         set(value) = prefs.edit().putString("semester", value).apply()
+
+    /** Academic-calendar class group; null = automatic (General (Flexible) first). */
+    var classGroupId: String?
+        get() = prefs.getString("class_group", null)
+        set(value) = prefs.edit().putString("class_group", value).apply()
 
     /** Set once we've told the user their session expired, so background sync doesn't nag. */
     var expiryNotified: Boolean
@@ -114,10 +120,16 @@ class Repository(private val context: Context) {
             // Optional menus: VTOP switches these off at times, which shouldn't sink the whole sync.
             val marks = async { runCatching { client.marks(sem.id) }.getOrDefault(emptyList()) }
             val exams = async { runCatching { client.examSchedule(sem.id) }.getOrDefault(emptyList()) }
+            val calendar = async { runCatching { client.academicCalendar(sem.id, classGroupId) }.getOrNull() }
+            val das = async { runCatching { client.digitalAssignments(sem.id) }.getOrDefault(emptyList()) }
             Snapshot(
                 regNo = session.regNo, campusId = campus.id, semester = sem, semesters = semesters,
                 timetable = tt.await(), attendance = att.await(), marks = marks.await(),
-                grades = grades.await(), exams = exams.await(), fetchedAtMillis = System.currentTimeMillis(),
+                grades = grades.await(), exams = exams.await(),
+                // Keep the last good calendar if VTOP's calendar menu is down this time.
+                calendar = calendar.await() ?: cached()?.calendar?.takeIf { cached()?.semester?.id == sem.id },
+                assignments = das.await(),
+                fetchedAtMillis = System.currentTimeMillis(),
             )
         }
         write("snapshot.json", Snapshot.serializer(), snapshot)
@@ -133,7 +145,8 @@ class Repository(private val context: Context) {
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
         cookieJar.clear()
+        vault.clear()
         file("snapshot.json").delete()
-        prefs.edit().remove("semester").remove("expiry_notified").apply()
+        prefs.edit().remove("semester").remove("expiry_notified").remove("class_group").apply()
     }
 }

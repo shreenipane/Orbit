@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.shreenipane.orbit.ui
 
 import android.Manifest
@@ -15,32 +13,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,11 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shreenipane.orbit.core.model.Snapshot
 import com.shreenipane.orbit.data.Notifier
@@ -69,11 +58,11 @@ import com.shreenipane.orbit.ui.more.MoreScreen
 import com.shreenipane.orbit.ui.timetable.TimetableScreen
 
 private enum class Tab(val label: String, val icon: ImageVector) {
-    Home("Today", Icons.Rounded.Home),
-    Timetable("Timetable", Icons.Rounded.CalendarMonth),
-    Attendance("Attendance", Icons.Rounded.CheckCircle),
-    Marks("Marks", Icons.Rounded.BarChart),
-    More("More", Icons.Rounded.Menu),
+    Home("Today", Icons.Outlined.WbSunny),
+    Timetable("Timetable", Icons.Outlined.CalendarMonth),
+    Attendance("Attendance", Icons.Outlined.CheckCircle),
+    Marks("Marks", Icons.Outlined.BarChart),
+    More("More", Icons.Outlined.GridView),
 }
 
 @Composable
@@ -81,7 +70,7 @@ fun OrbitRoot(vm: AppViewModel, canUseLock: Boolean) {
     val state by vm.state.collectAsStateWithLifecycle()
 
     if (state.loading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(strokeWidth = 3.dp) }
         return
     }
     if (state.showLogin || state.snapshot == null) {
@@ -91,6 +80,8 @@ fun OrbitRoot(vm: AppViewModel, canUseLock: Boolean) {
             onSignedIn = vm::onSignedIn,
             onCancel = if (state.snapshot != null) vm::cancelSignIn else null,
             busy = state.refreshing,
+            vault = vm.vault,
+            onLockerChanged = vm::lockerChanged,
         )
         return
     }
@@ -128,54 +119,47 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    if (moreDest != null) IconButton(onClick = { more = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                },
-                title = {
-                    if (moreDest != null) Text(moreDest.title) else SemesterPicker(snap, vm::selectSemester)
-                },
-                actions = {
-                    IconButton(onClick = { vm.refresh() }, enabled = !state.refreshing) {
-                        Icon(Icons.Rounded.Refresh, "Refresh from VTOP")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar {
-                Tab.entries.forEachIndexed { i, t ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { if (tab == i && t == Tab.More) more = null; tab = i },
-                        icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(t.label, maxLines = 1) },
-                    )
+            Column {
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                    Tab.entries.forEachIndexed { i, t ->
+                        NavigationBarItem(
+                            selected = tab == i,
+                            onClick = { if (tab == i && t == Tab.More) more = null; tab = i },
+                            icon = { Icon(t.icon, contentDescription = null) },
+                            label = { Text(t.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = Color.Transparent,
+                            ),
+                        )
+                    }
                 }
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            if (state.sessionExpired) {
+                Banner("VTOP session ended · showing saved data", "Sign in", vm::requestSignIn)
+            }
             val refresh = { vm.refresh() }
-            Column {
-                if (state.sessionExpired) {
-                    Banner(
-                        text = "Your VTOP session ended. Showing saved data.",
-                        action = "Sign in",
-                        onAction = vm::requestSignIn,
-                    )
-                }
+            Box(Modifier.weight(1f)) {
                 when (Tab.entries[tab]) {
-                    Tab.Home -> HomeScreen(snap, state.reminders, state.settings.alias, state.refreshing, refresh)
-                    Tab.Timetable -> TimetableScreen(snap)
+                    Tab.Home -> HomeScreen(snap, state.reminders, state.settings.alias, state.refreshing, refresh,
+                        onOpen = { tab = Tab.More.ordinal; more = it.name })
+                    Tab.Timetable -> TimetableScreen(snap, state.refreshing, refresh)
                     Tab.Attendance -> AttendanceScreen(snap, state.refreshing, refresh)
-                    Tab.Marks -> MarksScreen(snap)
+                    Tab.Marks -> MarksScreen(snap, state.refreshing, refresh)
                     Tab.More -> MoreScreen(
                         destination = moreDest,
                         onOpen = { more = it.name },
+                        onBack = { more = null },
                         state = state,
                         snap = snap,
                         vm = vm,
@@ -188,35 +172,16 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
 }
 
 @Composable
-private fun SemesterPicker(snap: Snapshot, onPick: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    TextButton(onClick = { open = true }) {
-        Text(
-            snap.semester?.name ?: "Pick a semester",
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
-        Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Change semester")
-    }
-    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        snap.semesters.forEach { s ->
-            DropdownMenuItem(text = { Text(s.name) }, onClick = { open = false; onPick(s.id) })
-        }
-    }
-}
-
-@Composable
 fun LockScreen(onUnlock: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.padding(8.dp))
-        Text("🪐", fontSize = 56.sp)
+        Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(12.dp))
         Text("Orbit is locked", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onUnlock) { Text("Unlock") }
+        Button(onClick = onUnlock, shape = MaterialTheme.shapes.medium) { Text("Unlock") }
     }
 }

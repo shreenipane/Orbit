@@ -44,11 +44,18 @@ import com.shreenipane.orbit.core.calc.FreeTime
 import com.shreenipane.orbit.core.calc.Schedule
 import com.shreenipane.orbit.core.model.Friend
 import com.shreenipane.orbit.core.model.Snapshot
-import com.shreenipane.orbit.ui.components.EmptyState
-import com.shreenipane.orbit.ui.components.SectionTitle
+import com.shreenipane.orbit.ui.components.EmptyNote
+import com.shreenipane.orbit.ui.components.ListRow
+import com.shreenipane.orbit.ui.components.OrbitScreen
+import com.shreenipane.orbit.ui.components.RowDivider
+import com.shreenipane.orbit.ui.components.Rows
+import com.shreenipane.orbit.ui.components.Segmented
+import com.shreenipane.orbit.ui.components.section
+import com.shreenipane.orbit.ui.home.ClassRow
 import java.time.LocalDate
 
 private val DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+private val FULL = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
 @Composable
 fun FriendsScreen(
@@ -63,79 +70,44 @@ fun FriendsScreen(
     var adding by remember { mutableStateOf(false) }
     var day by remember { mutableIntStateOf(LocalDate.now().dayOfWeek.value.coerceAtMost(6)) }
 
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(Modifier.padding(20.dp).fillMaxWidth()) {
-                    Text("Share your timetable", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Sends a code your friends paste into Orbit, plus a readable copy for anyone else. Nothing goes through a server.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            val code = myCode() ?: return@Button
-                            val name = alias.ifBlank { snap.regNo }
-                            val text = ShareCode.plainText(name, snap.timetable.sessions) + "\nAdd me in Orbit:\n$code"
-                            ctx.startActivity(Intent.createChooser(
-                                Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text),
-                                "Share timetable",
-                            ))
-                        }) { Text("Share") }
-                        FilledTonalButton(onClick = { adding = true }) { Text("Add a friend") }
-                    }
-                }
-            }
+    OrbitScreen(title = "Friends", subtitle = "Timetables") {
+        section(footer = "Shares a code friends paste into Orbit, plus a readable copy. Nothing goes through a server.") {
+            ListRow("Share my timetable", null, chevron = true, titleColor = MaterialTheme.colorScheme.primary, onClick = {
+                val code = myCode() ?: return@ListRow
+                val name = alias.ifBlank { snap.regNo }
+                val text = ShareCode.plainText(name, snap.timetable.sessions) + "\nAdd me in Orbit:\n$code"
+                ctx.startActivity(Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text),
+                    "Share timetable",
+                ))
+            })
+            RowDivider()
+            ListRow("Add a friend", null, chevron = true, titleColor = MaterialTheme.colorScheme.primary, onClick = { adding = true })
         }
 
         if (friends.isEmpty()) {
-            item { EmptyState("👋", "No friends added yet", "Ask a friend to share their Orbit code, then tap Add a friend.") }
-            return@LazyColumn
+            item { EmptyNote("No friends yet", "Ask a friend to share their Orbit code, then tap Add a friend.") }
+            return@OrbitScreen
         }
 
-        item {
-            Column {
-                SectionTitle("Free together")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DAYS.forEachIndexed { i, d -> FilterChip(day == i + 1, { day = i + 1 }, { Text(d) }) }
-                }
-            }
-        }
-        item {
-            val gaps = FreeTime.common(listOf(snap.timetable.sessions) + friends.map { it.sessions }, day)
-            Card {
-                Column(Modifier.padding(16.dp).fillMaxWidth()) {
-                    Text("Everyone's free on ${DAYS[day - 1]}", style = MaterialTheme.typography.titleMedium)
-                    if (gaps.isEmpty()) Text("No common gap of 30 minutes or more.", style = MaterialTheme.typography.bodySmall)
-                    gaps.forEach { Text("${it.start} – ${it.end}  (${it.minutes / 60}h ${it.minutes % 60}m)") }
-                }
-            }
+        item { Segmented(DAYS, day - 1, { day = it + 1 }, Modifier.padding(top = 20.dp)) }
+
+        val gaps = FreeTime.common(listOf(snap.timetable.sessions) + friends.map { it.sessions }, day)
+        section(header = "Everyone free on ${FULL[day - 1]}") {
+            if (gaps.isEmpty()) ListRow("No common gap", "Nothing of 30 minutes or more.")
+            Rows(gaps) { g -> ListRow("${g.start} – ${g.end}", "${g.minutes / 60}h ${g.minutes % 60}m") }
         }
 
-        item { SectionTitle("Friends") }
-        items(friends) { f ->
+        friends.forEach { f ->
             val list = Schedule.forDay(f.sessions, day)
             val withMe = FreeTime.common(listOf(snap.timetable.sessions, f.sessions), day)
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(Modifier.padding(16.dp).fillMaxWidth()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(f.name, style = MaterialTheme.typography.titleMedium)
-                            Text(f.semesterName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { onRemove(f) }) { Icon(Icons.Rounded.Delete, "Remove") }
-                    }
-                    if (list.isEmpty()) Text("No classes on ${DAYS[day - 1]}")
-                    list.forEach { Text("${it.start}–${it.end}  ${it.courseTitle} · ${it.venue}", style = MaterialTheme.typography.bodySmall) }
-                    if (withMe.isNotEmpty()) {
-                        Text(
-                            "Free with you: " + withMe.joinToString { "${it.start}–${it.end}" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
-                    }
-                }
+            section(
+                header = f.name,
+                action = "Remove" to { onRemove(f) },
+                footer = if (withMe.isNotEmpty()) "Free with you: " + withMe.joinToString { "${it.start}–${it.end}" } else null,
+            ) {
+                if (list.isEmpty()) ListRow("No classes", f.semesterName)
+                Rows(list, inset = 82.dp) { s -> ClassRow(s, isNow = false) }
             }
         }
     }

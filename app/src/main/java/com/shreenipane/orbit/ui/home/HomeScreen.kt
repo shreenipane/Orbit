@@ -1,24 +1,16 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.shreenipane.orbit.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,175 +22,197 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.shreenipane.orbit.core.calc.AttendanceCalc
+import com.shreenipane.orbit.core.calc.ExamPlanner
 import com.shreenipane.orbit.core.calc.ExamTime
-import com.shreenipane.orbit.core.model.Reminder
 import com.shreenipane.orbit.core.calc.GradeCalc
 import com.shreenipane.orbit.core.calc.Schedule
 import com.shreenipane.orbit.core.model.ClassSession
+import com.shreenipane.orbit.core.model.Reminder
 import com.shreenipane.orbit.core.model.Snapshot
-import com.shreenipane.orbit.ui.components.EmptyState
-import com.shreenipane.orbit.ui.components.Pill
-import com.shreenipane.orbit.ui.components.SectionTitle
-import com.shreenipane.orbit.ui.components.Stat
+import com.shreenipane.orbit.ui.components.Dot
+import com.shreenipane.orbit.ui.components.EmptyNote
+import com.shreenipane.orbit.ui.components.ListRow
+import com.shreenipane.orbit.ui.components.Metric
+import com.shreenipane.orbit.ui.components.OrbitScreen
+import com.shreenipane.orbit.ui.components.RowDivider
+import com.shreenipane.orbit.ui.components.Rows
+import com.shreenipane.orbit.ui.components.TimeColumn
+import com.shreenipane.orbit.ui.components.section
+import com.shreenipane.orbit.ui.more.MoreDestination
 import com.shreenipane.orbit.ui.theme.Bad
+import com.shreenipane.orbit.ui.theme.Warn
 import com.shreenipane.orbit.ui.theme.attendanceColor
 import kotlinx.coroutines.delay
-import java.text.DateFormat
 import java.time.LocalDateTime
-import java.util.Date
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+
+private val DATE = DateTimeFormatter.ofPattern("EEEE, d MMMM")
+private val SHORT = DateTimeFormatter.ofPattern("EEE, d MMM")
 
 @Composable
-fun HomeScreen(snap: Snapshot, reminders: List<Reminder>, alias: String, refreshing: Boolean, onRefresh: () -> Unit) {
-    // Re-evaluate "now" every 30 s so the ongoing/next card moves on its own.
+fun HomeScreen(
+    snap: Snapshot,
+    reminders: List<Reminder>,
+    alias: String,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    onOpen: (MoreDestination) -> Unit,
+) {
+    // Re-evaluate "now" every 30 s so the Now/Next card moves on its own.
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = LocalDateTime.now() } }
 
-    val day = now.dayOfWeek.value
+    val today = now.toLocalDate()
     val minute = now.hour * 60 + now.minute
-    val sched = Schedule.now(snap.timetable.sessions, day, minute)
+    val todayOrder = snap.calendar?.days?.firstOrNull { it.date == today.toString() }?.dayOrder
+    val sched = Schedule.now(snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value, minute)
     val low = snap.attendance.filter { AttendanceCalc.percent(it.attended, it.total) < 75.0 }
     val standing = snap.grades?.let(GradeCalc::standing)
-    val nextExam = ExamTime.upcoming(snap.exams, now).firstOrNull()
+    val countdown = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute).firstOrNull()
+    val pendingDas = snap.assignments.filter { !it.submitted }
+        .mapNotNull { da -> ExamTime.parseVtopDate(da.dueDate)?.let { da to it } }
+        .filter { !it.second.isBefore(today) }
+        .sortedBy { it.second }
     val nowMillis = System.currentTimeMillis()
     val dueSoon = reminders.filter { !it.done && it.dueAtMillis < nowMillis + 3 * 86_400_000L }.take(3)
+    val overall = snap.attendance.let { a ->
+        val att = a.sumOf { it.attended }; val tot = a.sumOf { it.total }
+        if (tot == 0) null else AttendanceCalc.percent(att, tot)
+    }
 
-    PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item {
-                Column {
-                    Text(greeting(now.hour) + if (alias.isNotBlank()) ", $alias" else "", style = MaterialTheme.typography.headlineMedium)
-                    Text(
-                        "${snap.regNo} · synced ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(snap.fetchedAtMillis))}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    OrbitScreen(
+        title = if (alias.isNotBlank()) "Hi, $alias" else "Today",
+        subtitle = now.format(DATE),
+        refreshing = refreshing,
+        onRefresh = onRefresh,
+    ) {
+        item { NowCard(sched) }
+
+        item {
+            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Metric(overall?.let { "%.0f%%".format(it) } ?: "—", "Attendance", Modifier.weight(1f),
+                    valueColor = overall?.let(::attendanceColor) ?: androidx.compose.ui.graphics.Color.Unspecified)
+                Metric(standing?.let { "%.2f".format(it.cgpa) } ?: "—", "CGPA", Modifier.weight(1f))
+                Metric(countdown?.let { "${it.daysLeft}d" } ?: "—", countdown?.let { "To ${it.label}" } ?: "Next exam", Modifier.weight(1f))
+            }
+        }
+
+        section(header = "Classes today") {
+            if (sched.today.isEmpty()) {
+                ListRow("No classes today", "Pull down to refresh if that looks wrong.")
+            } else {
+                Rows(sched.today, inset = 82.dp) { s -> ClassRow(s, isNow = s == sched.ongoing) }
+            }
+        }
+
+        if (countdown != null || pendingDas.isNotEmpty()) {
+            section(header = "Coming up", action = "See all" to { onOpen(MoreDestination.Exams) }) {
+                if (countdown != null) {
+                    ListRow(
+                        title = "${countdown.label} in ${countdown.daysLeft} ${if (countdown.daysLeft == 1L) "day" else "days"}",
+                        subtitle = "${countdown.totalClasses} classes left · ${countdown.instructionalDaysLeft} instructional days · ${countdown.start.format(SHORT)}",
+                        onClick = { onOpen(MoreDestination.Exams) },
+                        chevron = true,
+                    )
+                }
+                pendingDas.take(3).forEachIndexed { i, (da, due) ->
+                    if (i > 0 || countdown != null) RowDivider()
+                    val days = ChronoUnit.DAYS.between(today, due)
+                    ListRow(
+                        title = da.title,
+                        subtitle = "${da.courseTitle} · due ${due.format(SHORT)}",
+                        onClick = { onOpen(MoreDestination.Reminders) },
+                        trailing = {
+                            Text(
+                                if (days == 0L) "Today" else "${days}d",
+                                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                                color = if (days <= 2) Bad else if (days <= 5) Warn else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
                     )
                 }
             }
+        }
 
-            item { NowCard(sched) }
-
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Card(Modifier.weight(1f)) {
-                        Stat(standing?.let { "%.2f".format(it.cgpa) } ?: "—", "CGPA", Modifier.padding(16.dp))
-                    }
-                    Card(Modifier.weight(1f)) {
-                        val overall = snap.attendance.let { a ->
-                            val att = a.sumOf { it.attended }; val tot = a.sumOf { it.total }
-                            if (tot == 0) "—" else "%.0f%%".format(AttendanceCalc.percent(att, tot))
-                        }
-                        Stat(overall, "Overall attendance", Modifier.padding(16.dp))
-                    }
-                }
-            }
-
-            if (nextExam != null) {
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-                        Row(Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("${nextExam.first.examType} · ${nextExam.first.courseTitle}", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    nextExam.second.format(java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM · h:mm a")) +
-                                        nextExam.first.venue.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            Text(ExamTime.countdown(nextExam.second, now), fontWeight = FontWeight.Black)
-                        }
-                    }
-                }
-            }
-
-            if (dueSoon.isNotEmpty()) {
-                item { SectionTitle("Due soon") }
-                items(dueSoon) { r ->
+        if (dueSoon.isNotEmpty()) {
+            section(header = "Your reminders") {
+                Rows(dueSoon) { r ->
                     val overdue = r.dueAtMillis < nowMillis
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                        Row(Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(r.title, style = MaterialTheme.typography.titleMedium)
-                                r.courseCode?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            }
+                    ListRow(
+                        r.title,
+                        r.courseCode,
+                        onClick = { onOpen(MoreDestination.Reminders) },
+                        trailing = {
                             Text(
-                                if (overdue) "Overdue" else java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(Date(r.dueAtMillis)),
-                                color = if (overdue) Bad else MaterialTheme.colorScheme.onSurfaceVariant,
+                                if (overdue) "Overdue" else java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(r.dueAtMillis)),
                                 style = MaterialTheme.typography.bodySmall,
+                                color = if (overdue) Bad else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        }
-                    }
+                        },
+                    )
                 }
             }
+        }
 
-            if (low.isNotEmpty()) {
-                item { SectionTitle("Below 75%") }
-                items(low) { a ->
+        if (low.isNotEmpty()) {
+            section(header = "Below 75%") {
+                Rows(low) { a ->
                     val need = AttendanceCalc.neededInARow(a.attended, a.total)
-                    Card(colors = CardDefaults.cardColors(containerColor = Bad.copy(alpha = 0.10f))) {
-                        Row(Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(a.courseTitle, style = MaterialTheme.typography.titleMedium)
-                                Text("Attend the next $need in a row to get back to 75%", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text("${a.vtopPercent}%", fontWeight = FontWeight.Black, color = Bad)
-                        }
-                    }
+                    ListRow(
+                        a.courseTitle,
+                        "Attend the next $need in a row to reach 75%",
+                        trailing = { Text("${a.vtopPercent}%", fontWeight = FontWeight.SemiBold, color = Bad) },
+                    )
                 }
             }
+        }
 
-            item { SectionTitle("Today") }
-            if (sched.today.isEmpty()) {
-                item { EmptyState("🌤️", "No classes today", "Enjoy it. Pull down to refresh if that looks wrong.") }
-            } else {
-                items(sched.today) { s ->
-                    val att = snap.attendance.firstOrNull { it.courseCode == s.courseCode && it.slot.contains(s.slot.substringBefore('+')) }
-                    ClassRow(s, isNow = s == sched.ongoing, attendance = att?.let { AttendanceCalc.percent(it.attended, it.total) })
-                }
-            }
+        item {
+            Text(
+                "${snap.regNo} · synced ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(snap.fetchedAtMillis))}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 20.dp, start = 4.dp),
+            )
         }
     }
 }
 
-private fun greeting(hour: Int) = when (hour) {
-    in 5..11 -> "Good morning"
-    in 12..16 -> "Good afternoon"
-    else -> "Good evening"
-}
-
 @Composable
 private fun NowCard(s: Schedule.Now) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
             val ongoing = s.ongoing
             val next = s.next
+            val on = MaterialTheme.colorScheme.onPrimary
             when {
                 ongoing != null -> {
-                    Pill("NOW", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(4.dp))
-                    Text(ongoing.courseTitle, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
-                    Text("${ongoing.venue} · until ${ongoing.end}", style = MaterialTheme.typography.bodyMedium)
-                    if (next != null) Text("Then ${next.courseTitle} at ${next.start}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                    Text("NOW · UNTIL ${ongoing.end}", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
+                    Spacer(Modifier.height(6.dp))
+                    Text(ongoing.courseTitle, style = MaterialTheme.typography.titleLarge, color = on)
+                    Text("${ongoing.venue} · ${ongoing.slot}", style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.85f))
+                    if (next != null) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Next: ${next.courseTitle} at ${next.start}", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.85f))
+                    }
                 }
                 next != null -> {
-                    Pill("NEXT · in ${humanMinutes(s.minutesToNext ?: 0)}", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
-                    Text(next.courseTitle, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
-                    Text("${next.venue} · ${next.start}–${next.end}", style = MaterialTheme.typography.bodyMedium)
+                    Text("NEXT · IN ${humanMinutes(s.minutesToNext ?: 0).uppercase()}", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
+                    Spacer(Modifier.height(6.dp))
+                    Text(next.courseTitle, style = MaterialTheme.typography.titleLarge, color = on)
+                    Text("${next.venue} · ${next.start}–${next.end}", style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.85f))
                 }
                 s.today.isNotEmpty() -> {
-                    Text("Done for the day 🎉", style = MaterialTheme.typography.titleLarge)
-                    Text("${s.today.size} classes today", style = MaterialTheme.typography.bodyMedium)
+                    Text("DONE FOR TODAY", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
+                    Spacer(Modifier.height(6.dp))
+                    Text("${s.today.size} classes finished", style = MaterialTheme.typography.titleLarge, color = on)
                 }
-                else -> Text("Free day ✨", style = MaterialTheme.typography.titleLarge)
+                else -> {
+                    Text("FREE DAY", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
+                    Spacer(Modifier.height(6.dp))
+                    Text("No classes today", style = MaterialTheme.typography.titleLarge, color = on)
+                }
             }
         }
     }
@@ -207,29 +221,22 @@ private fun NowCard(s: Schedule.Now) {
 private fun humanMinutes(m: Int) = if (m < 60) "$m min" else "${m / 60}h ${m % 60}m"
 
 @Composable
-fun ClassRow(s: ClassSession, isNow: Boolean, attendance: Double?) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isNow) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.width(64.dp)) {
-                Text(s.start, fontWeight = FontWeight.Bold)
-                Text(s.end, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun ClassRow(s: ClassSession, isNow: Boolean, trailing: String? = null) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        TimeColumn(s.start, s.end)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isNow) { Dot(MaterialTheme.colorScheme.primary); Spacer(Modifier.width(6.dp)) }
+                Text(s.courseTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
-            Column(Modifier.weight(1f)) {
-                Text(s.courseTitle, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "${s.courseCode} · ${s.slot} · ${s.venue}" + if (s.isLab) " · Lab" else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (attendance != null) {
-                Text("%.0f%%".format(attendance), fontWeight = FontWeight.Bold, color = attendanceColor(attendance))
-            }
+            Text(
+                listOf(s.venue, s.slot, if (s.isLab) "Lab" else null).filterNotNull().joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+        if (trailing != null) Text(trailing, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

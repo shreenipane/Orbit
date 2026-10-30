@@ -28,6 +28,18 @@ object AttendanceCalc {
         return n.coerceAtLeast(0)
     }
 
+    /**
+     * With [remaining] classes left in the semester, how many can be missed and
+     * still finish at or above the threshold. -1 means 75% is out of reach even
+     * attending every remaining class.
+     */
+    fun missableOfRemaining(attended: Int, total: Int, remaining: Int, threshold: Double = DEFAULT_THRESHOLD): Int {
+        val finalTotal = total + remaining
+        if (finalTotal == 0) return 0
+        val k = floor(attended + remaining - threshold * finalTotal + 1e-9).toInt()
+        return if (k < 0) -1 else k.coerceAtMost(remaining)
+    }
+
     /** What the percentage becomes after attending [present] and missing [absent] more classes. */
     fun projected(attended: Int, total: Int, present: Int, absent: Int): Double =
         percent(attended + present, total + present + absent)

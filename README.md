@@ -6,12 +6,14 @@ A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VT
 * **Timetable** by day, with back-to-back lab slots merged into one block
 * **Attendance:** how many classes you can skip or need to attend, plus an attend/miss planner
 * **Marks** by course or by exam (CAT-1 across all courses)
-* **Exams:** schedule, venue, seat and countdown
+* **Exams:** how many classes are left in each course before CAT 1, CAT 2 and FAT, read from VTOP's academic calendar (B.Tech entries only, General (Flexible) class group by default; holidays skipped, Saturday day orders followed), plus schedule, venue and seat
+* **Deadlines:** VTOP digital assignments with days left, past-due and submitted lists, and alerts the evening before and on the day
 * **CGPA planner:** the SGPA you need for a target CGPA, and a "what if I get…" grade picker
 * **Reminders and assignments**, with notifications when they're due
 * **Friends:** swap timetables with a share code (no server involved) and see when you're all free
 * **Alerts:** before each class, the evening before an exam and an hour before it, and for new marks or absences after a background sync
 * **App lock** with fingerprint, face or screen lock, plus a display name of your choice
+* **Fingerprint login locker:** after one password sign-in, Orbit can save your VTOP login encrypted with AES-256-GCM. The key lives in Android Keystore, can't be exported, and unlocks only after a strong-biometric check. It persists until you sign out (Android wipes it if you enrol a new fingerprint). Signing in then means a fingerprint plus typing the captcha. SHA-256 isn't used for this, because it's a one-way hash and a stored password has to be readable again.
 
 It's a clean-room rebuild of the feature set that iOS VTOP companions like VITals offer. No code, assets or branding come from those apps.
 
@@ -30,7 +32,7 @@ Debug builds are signed with a fresh key on each CI run, so uninstall the old bu
 2. Run the `app` configuration on a device or emulator (Android 8.0+, API 26).
 3. Pick your campus, tap **Sign in with VTOP**, and log in on VTOP's own page (captcha and OTP included).
 
-To run the unit tests: `./gradlew test` (14 tests: parsers, attendance and CGPA maths, exam times, share codes, free time, sync diff)
+To run the unit tests: `gradle test`, or right-click `app/src/test` in Android Studio → Run (20 tests: parsers including the academic calendar and DAs, classes-left counting, attendance and CGPA maths, exam times, share codes, free time, sync diff)
 
 ## How it works
 
@@ -56,8 +58,8 @@ VtopClient: /vtop/content → _csrf + authorizedIDX                      │
 | `core/model` | Serializable data classes |
 | `core/parse` | `VtopParsers`: semesters, timetable grid + registered courses, attendance, marks, grade history |
 | `core/calc` | `AttendanceCalc` (75% rule), `GradeCalc` (10-point scale, SGPA/CGPA, required SGPA), `Schedule` (now/next) |
-| `core` | `ShareCode` (friend codes), `calc/ExamTime`, `calc/FreeTime`, `calc/SyncDiff` |
-| `data` | `Campus`, `WebViewCookieJar`, `VtopClient`, `Repository` (snapshot, reminders, friends, settings), `Notifier` |
+| `core` | `ShareCode` (friend codes), `calc/ExamTime`, `calc/FreeTime`, `calc/SyncDiff`, `calc/ExamPlanner` (classes left before each exam), `parse/CalendarParsers` (academic calendar, DAs) |
+| `data` | `Campus`, `WebViewCookieJar`, `VtopClient`, `Repository` (snapshot, reminders, friends, settings), `CredentialVault` (fingerprint locker), `Notifier` |
 | `work` | WorkManager jobs: 6-hourly sync, alert planning, class/exam/reminder alerts |
 | `ui` | Today, Timetable, Attendance, Marks, More (Exams, CGPA, Reminders, Friends, Settings), lock screen |
 

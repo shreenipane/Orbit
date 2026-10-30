@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +31,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,15 +50,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.shreenipane.orbit.core.model.Reminder
 import com.shreenipane.orbit.core.model.ReminderKind
 import com.shreenipane.orbit.core.model.Snapshot
-import com.shreenipane.orbit.ui.components.EmptyState
-import com.shreenipane.orbit.ui.components.Pill
-import com.shreenipane.orbit.ui.components.SectionTitle
+import com.shreenipane.orbit.core.calc.ExamTime
+import com.shreenipane.orbit.ui.components.ListRow
+import com.shreenipane.orbit.ui.components.OrbitScreen
+import com.shreenipane.orbit.ui.components.Rows
+import com.shreenipane.orbit.ui.components.Tag
+import com.shreenipane.orbit.ui.components.section
 import com.shreenipane.orbit.ui.theme.Bad
+import com.shreenipane.orbit.ui.theme.Good
+import com.shreenipane.orbit.ui.theme.Warn
+import java.time.temporal.ChronoUnit
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -79,26 +88,75 @@ fun RemindersScreen(
     var editing by remember { mutableStateOf<Reminder?>(null) }
     var creating by remember { mutableStateOf(false) }
     val now = System.currentTimeMillis()
+    val today = LocalDate.now()
     val pending = reminders.filter { !it.done }
     val done = reminders.filter { it.done }
+    val das = snap.assignments.map { it to ExamTime.parseVtopDate(it.dueDate) }
+    val daOpen = das.filter { !it.first.submitted && (it.second == null || !it.second!!.isBefore(today)) }
+        .sortedBy { it.second ?: LocalDate.MAX }
+    val daDone = das.filter { it.first.submitted }
+    val daMissed = das.filter { !it.first.submitted && it.second != null && it.second!!.isBefore(today) }
 
     Box(Modifier.fillMaxSize()) {
-        if (reminders.isEmpty()) {
-            EmptyState("⏰", "Nothing to remember yet", "Add assignments and reminders here. Orbit will notify you when they're due.")
-        } else {
-            LazyColumn(contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (pending.isNotEmpty()) item { SectionTitle("Coming up") }
-                items(pending) { r -> ReminderRow(r, overdue = r.dueAtMillis < now, onToggle, onDelete) { editing = r } }
-                if (done.isNotEmpty()) item { SectionTitle("Done") }
-                items(done.sortedByDescending { it.dueAtMillis }) { r -> ReminderRow(r, overdue = false, onToggle, onDelete) { editing = r } }
+        OrbitScreen(title = "Deadlines", subtitle = snap.semester?.name, bottomPadding = 96.dp) {
+            section(
+                header = "Digital assignments",
+                footer = if (snap.assignments.isEmpty()) "No DAs on VTOP for this semester yet." else
+                    "${daDone.size} submitted · ${daOpen.size} open" + if (daMissed.isNotEmpty()) " · ${daMissed.size} past due" else "",
+            ) {
+                if (daOpen.isEmpty()) ListRow(if (snap.assignments.isEmpty()) "Nothing posted" else "All caught up", null)
+                Rows(daOpen) { (da, due) ->
+                    val days = due?.let { ChronoUnit.DAYS.between(today, it) }
+                    ListRow(
+                        title = "${da.title} · ${da.courseTitle}",
+                        subtitle = listOfNotNull(due?.format(DAY), da.courseCode, da.maxMark.takeIf { it.isNotBlank() }?.let { "$it marks" })
+                            .joinToString(" · "),
+                        trailing = {
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    when (days) { null -> "—"; 0L -> "Today"; 1L -> "1 day"; else -> "$days days" },
+                                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                                    color = when { days == null -> MaterialTheme.colorScheme.onSurfaceVariant; days <= 2 -> Bad; days <= 5 -> Warn; else -> MaterialTheme.colorScheme.onSurface },
+                                )
+                                Text("left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                    )
+                }
+            }
+            if (daMissed.isNotEmpty()) {
+                section(header = "Past due, not uploaded") {
+                    Rows(daMissed) { (da, due) ->
+                        ListRow("${da.title} · ${da.courseTitle}", "Was due ${due?.format(DAY)}", titleColor = Bad)
+                    }
+                }
+            }
+            if (daDone.isNotEmpty()) {
+                section(header = "Submitted") {
+                    Rows(daDone) { (da, _) ->
+                        ListRow("${da.title} · ${da.courseTitle}", da.status, trailing = { Tag("Done", Good) })
+                    }
+                }
+            }
+
+            section(header = "Your reminders", action = "Add" to { creating = true }) {
+                if (pending.isEmpty()) ListRow("No reminders", "Tap Add to set one. Orbit notifies you when it's due.")
+                Rows(pending, inset = 56.dp) { r -> ReminderRow(r, overdue = r.dueAtMillis < now, onToggle, onDelete) { editing = r } }
+            }
+            if (done.isNotEmpty()) {
+                section(header = "Done") {
+                    Rows(done.sortedByDescending { it.dueAtMillis }, inset = 56.dp) { r ->
+                        ReminderRow(r, overdue = false, onToggle, onDelete) { editing = r }
+                    }
+                }
             }
         }
-        ExtendedFloatingActionButton(
+        FloatingActionButton(
             onClick = { creating = true },
-            icon = { Icon(Icons.Rounded.Add, null) },
-            text = { Text("Add") },
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-        )
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) { Icon(Icons.Rounded.Add, "Add reminder") }
     }
 
     if (creating || editing != null) {
@@ -112,32 +170,22 @@ fun RemindersScreen(
     }
 }
 
+private val DAY = DateTimeFormatter.ofPattern("EEE, d MMM")
+
 @Composable
 private fun ReminderRow(r: Reminder, overdue: Boolean, onToggle: (Reminder) -> Unit, onDelete: (Reminder) -> Unit, onEdit: () -> Unit) {
-    Card(
-        Modifier.fillMaxWidth().clickable(onClick = onEdit),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-    ) {
-        Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = r.done, onCheckedChange = { onToggle(r) })
-            Column(Modifier.weight(1f)) {
-                Text(
-                    r.title, style = MaterialTheme.typography.titleMedium,
-                    textDecoration = if (r.done) TextDecoration.LineThrough else null,
-                )
-                Text(
-                    listOfNotNull(r.dueAtMillis.toLocal().format(WHEN), r.courseCode).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (overdue) Bad else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (r.kind == ReminderKind.ASSIGNMENT) {
-                    Spacer(Modifier.height(4.dp))
-                    Pill("Assignment", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onSurface)
-                }
-            }
-            IconButton(onClick = { onDelete(r) }) { Icon(Icons.Rounded.Delete, "Delete") }
-        }
-    }
+    ListRow(
+        title = r.title,
+        subtitle = listOfNotNull(
+            r.dueAtMillis.toLocal().format(WHEN),
+            r.courseCode,
+            if (r.kind == ReminderKind.ASSIGNMENT) "Assignment" else null,
+        ).joinToString(" · "),
+        titleColor = if (overdue) Bad else androidx.compose.ui.graphics.Color.Unspecified,
+        leading = { Checkbox(checked = r.done, onCheckedChange = { onToggle(r) }, modifier = Modifier.size(26.dp)) },
+        trailing = { IconButton(onClick = { onDelete(r) }) { Icon(Icons.Rounded.Delete, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        onClick = onEdit,
+    )
 }
 
 @Composable

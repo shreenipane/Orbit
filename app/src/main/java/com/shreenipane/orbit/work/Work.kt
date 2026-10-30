@@ -73,7 +73,11 @@ object Work {
         if (settings.classAlerts) {
             val today = LocalDate.now()
             for (date in listOf(today, today.plusDays(1))) {
-                snap.timetable.sessions.filter { it.day == date.dayOfWeek.value }.forEach { s ->
+                // Respect the academic calendar: no alerts on holidays, and Saturday day orders.
+                val calDay = snap.calendar?.days?.firstOrNull { it.date == date.toString() }
+                if (calDay != null && calDay.kind != com.shreenipane.orbit.core.model.DayKind.INSTRUCTIONAL) continue
+                val weekday = calDay?.dayOrder ?: date.dayOfWeek.value
+                snap.timetable.sessions.filter { it.day == weekday }.forEach { s ->
                     val start = date.atTime(LocalTime.parse(s.start))
                     alert(
                         context, "class-$date-${s.start}-${s.slot}", TAG_CLASS,
@@ -94,6 +98,17 @@ object Work {
                     Notifier.EXAMS, "${e.examType} tomorrow: ${e.courseTitle}", "$time · $where")
                 alert(context, "exam-1h-${e.examType}-${e.courseCode}", TAG_EXAM, start.minusHours(1),
                     Notifier.EXAMS, "${e.examType} in 1 hour: ${e.courseTitle}", "Report by ${e.reportingTime.ifBlank { time }} · $where")
+            }
+            // Digital assignments still to upload, due in the next two weeks.
+            val today = now.toLocalDate()
+            snap.assignments.filter { !it.submitted }.forEach { da ->
+                val due = ExamTime.parseVtopDate(da.dueDate) ?: return@forEach
+                if (due.isBefore(today) || due.isAfter(today.plusDays(14))) return@forEach
+                val key = "${da.classId}-${da.title}"
+                alert(context, "da-eve-$key", TAG_EXAM, due.minusDays(1).atTime(20, 0), Notifier.EXAMS,
+                    "DA due tomorrow: ${da.title}", "${da.courseTitle} · not uploaded yet")
+                alert(context, "da-day-$key", TAG_EXAM, due.atTime(9, 0), Notifier.EXAMS,
+                    "DA due today: ${da.title}", "${da.courseTitle} · upload on VTOP before midnight")
             }
         }
     }

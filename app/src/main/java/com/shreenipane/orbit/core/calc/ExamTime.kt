@@ -16,7 +16,13 @@ object ExamTime {
     private val TIME: DateTimeFormatter = DateTimeFormatterBuilder()
         .parseCaseInsensitive().appendPattern("hh:mm a").toFormatter(Locale.ENGLISH)
 
-    fun date(e: Exam): LocalDate? = runCatching { LocalDate.parse(e.date.trim(), DATE) }.getOrNull()
+    /** "21-Nov-2026" (VTOP's usual date format) → LocalDate. */
+    fun parseVtopDate(s: String): LocalDate? =
+        Regex("\\d{1,2}-[A-Za-z]{3}-\\d{4}").find(s)?.value?.let { v ->
+            runCatching { LocalDate.parse(v.padStart(11, '0'), DATE) }.getOrNull()
+        }
+
+    fun date(e: Exam): LocalDate? = parseVtopDate(e.date)
 
     private fun time(s: String): LocalTime? {
         val t = Regex("(\\d{1,2}):(\\d{2})\\s*([AaPp][Mm])").find(s) ?: return null
