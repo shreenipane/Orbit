@@ -113,6 +113,79 @@ object ExamPlanner {
         }
     }
 
+    /** One subject's classes left before each exam; null where that exam has already started. */
+    data class SubjectRow(
+        val courseCode: String,
+        val courseTitle: String,
+        val isLab: Boolean,
+        val left: Map<String, Int?>,
+    )
+
+    data class Matrix(val exams: List<Pair<String, LocalDate>>, val rows: List<SubjectRow>, val today: LocalDate)
+
+    /**
+     * Every subject against CAT 1, CAT 2 and FAT in one table. Exams already
+     * under way or over show as null ("done") rather than disappearing.
+     */
+    fun matrix(
+        cal: AcademicCalendar?, schedule: List<Exam>, sessions: List<ClassSession>,
+        today: LocalDate, nowMinute: Int,
+    ): Matrix? {
+        if (cal == null) return null
+        val starts = examStarts(cal, schedule)
+        val exams = EXAMS.mapNotNull { (key, _) -> starts[key]?.let { key to it } }
+        if (exams.isEmpty()) return null
+        val perExam = exams.associate { (key, start) ->
+            key to if (start.isBefore(today) || start == today) null
+            else classesBetween(cal, sessions, today, nowMinute, start).second
+        }
+        val keys = sessions.map { it.courseCode to it.isLab }.distinct()
+        val titles = sessions.associate { (it.courseCode to it.isLab) to it.courseTitle }
+        val rows = keys.map { k ->
+            SubjectRow(
+                courseCode = k.first, courseTitle = titles[k] ?: k.first, isLab = k.second,
+                left = exams.associate { (key, _) ->
+                    key to perExam[key]?.let { list -> list.firstOrNull { it.courseCode == k.first && it.isLab == k.second }?.classes ?: 0 }
+                },
+            )
+        }.sortedWith(compareBy({ it.courseTitle }, { it.isLab }))
+        return Matrix(exams, rows, today)
+    }
+
+    /** The day after the last instructional day, i.e. when classes stop. */
+    fun semesterEnd(cal: AcademicCalendar): LocalDate? =
+        cal.days.lastOrNull { it.kind == DayKind.INSTRUCTIONAL }?.let { LocalDate.parse(it.date).plusDays(1) }
+
+    fun isLab(record: AttendanceRecord) = record.slot.startsWith("L") || record.courseType.contains("Lab", true)
+
+    data class ClassDate(val date: LocalDate, val session: ClassSession, val followsDay: Int?)
+
+    /**
+     * Every remaining class of one course, date by date, from the academic
+     * calendar: instructional days only (weekends included when VTOP marks them
+     * instructional), each running its own weekday's timetable or the day order
+     * VTOP gives. Classes that already started today are excluded.
+     */
+    fun classDates(
+        cal: AcademicCalendar, sessions: List<ClassSession>, courseCode: String, isLab: Boolean,
+        today: LocalDate, nowMinute: Int, until: LocalDate? = semesterEnd(cal),
+    ): List<ClassDate> {
+        val mine = sessions.filter { it.courseCode == courseCode && it.isLab == isLab }
+        if (mine.isEmpty() || until == null) return emptyList()
+        val out = mutableListOf<ClassDate>()
+        for (d in cal.days) {
+            if (d.kind != DayKind.INSTRUCTIONAL) continue
+            val date = LocalDate.parse(d.date)
+            if (date.isBefore(today) || !date.isBefore(until)) continue
+            val weekday = d.dayOrder ?: date.dayOfWeek.value
+            mine.filter { it.day == weekday }
+                .filter { date != today || minutes(it.start) > nowMinute }
+                .sortedBy { minutes(it.start) }
+                .forEach { out += ClassDate(date, it, d.dayOrder?.takeIf { o -> o != date.dayOfWeek.value }) }
+        }
+        return out
+    }
+
     /** Classes left in the semester for the course behind an attendance record. */
     fun remainingFor(record: AttendanceRecord, cal: AcademicCalendar?, sessions: List<ClassSession>, today: LocalDate, nowMinute: Int): Int? {
         if (cal == null) return null

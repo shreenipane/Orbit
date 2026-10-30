@@ -50,7 +50,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import com.shreenipane.orbit.data.Campus
 import com.shreenipane.orbit.data.CredentialVault
+import com.shreenipane.orbit.ui.components.BrutalButton
 import com.shreenipane.orbit.ui.components.Segmented
+import com.shreenipane.orbit.ui.theme.Pastel
+import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
 /**
@@ -128,7 +131,7 @@ fun LoginScreen(
         Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Orbit", style = MaterialTheme.typography.displaySmall)
+        Text("Orbit", style = MaterialTheme.typography.displayMedium.copy(fontSize = 56.sp))
         Spacer(Modifier.height(6.dp))
         Text(
             "Timetable, attendance, marks, exams and deadlines from VTOP, on your phone.",
@@ -136,7 +139,7 @@ fun LoginScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(36.dp))
-        Text("CAMPUS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Campus", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         val campuses = Campus.entries
         Segmented(
@@ -148,7 +151,10 @@ fun LoginScreen(
 
         val saved = vault.savedRegNo
         if (saved != null && canFingerprint) {
-            Button(
+            BrutalButton(
+                text = "Sign in with fingerprint",
+                fill = Pastel.Green,
+                leading = { Icon(Icons.Rounded.Fingerprint, null, tint = Pastel.Ink) },
                 onClick = {
                     val cipher = vault.decryptCipher()
                     if (cipher == null) {
@@ -165,13 +171,8 @@ fun LoginScreen(
                         )
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = MaterialTheme.shapes.medium,
-            ) {
-                Icon(Icons.Rounded.Fingerprint, null)
-                Spacer(Modifier.padding(4.dp))
-                Text("Sign in with fingerprint")
-            }
+                modifier = Modifier.fillMaxWidth(),
+            )
             Text(
                 "Saved login: $saved",
                 style = MaterialTheme.typography.bodySmall,
@@ -179,13 +180,9 @@ fun LoginScreen(
                 modifier = Modifier.padding(top = 8.dp, start = 4.dp),
             )
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = { web = null; showWeb = true }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = MaterialTheme.shapes.medium) {
-                Text("Use password instead")
-            }
+            BrutalButton("Use password instead", { web = null; showWeb = true }, Modifier.fillMaxWidth(), fill = Pastel.Card)
         } else {
-            Button(onClick = { web = null; showWeb = true }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.medium) {
-                Text("Sign in with VTOP")
-            }
+            BrutalButton("Sign in with VTOP", { web = null; showWeb = true }, Modifier.fillMaxWidth(), fill = Pastel.Yellow)
         }
         if (onCancel != null) {
             TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Keep using saved data") }

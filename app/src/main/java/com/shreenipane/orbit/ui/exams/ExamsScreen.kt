@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,33 +56,23 @@ fun ExamsScreen(snap: Snapshot) {
         }
 
         if (countdowns.isNotEmpty()) {
-            val sel = pick.coerceIn(0, countdowns.lastIndex)
-            val cd = countdowns[sel]
-            if (countdowns.size > 1) {
-                item { Segmented(countdowns.map { it.label }, sel, { pick = it }, Modifier.padding(top = 4.dp)) }
-            }
+            val cd = countdowns.first()
             item {
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Stat("${cd.daysLeft}", if (cd.daysLeft == 1L) "day to go" else "days to go", Modifier.weight(1f))
-                    Stat("${cd.instructionalDaysLeft}", "teaching days", Modifier.weight(1f))
-                    Stat("${cd.totalClasses}", "classes left", Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Stat("${cd.daysLeft}", "days to ${cd.label}", Modifier.weight(1f), com.shreenipane.orbit.ui.theme.Pastel.Salmon)
+                    Stat("${cd.instructionalDaysLeft}", "teaching days", Modifier.weight(1f), com.shreenipane.orbit.ui.theme.Pastel.Yellow)
+                    Stat("${cd.totalClasses}", "classes left", Modifier.weight(1f), com.shreenipane.orbit.ui.theme.Pastel.Green)
                 }
             }
+        }
+
+        val matrix = ExamPlanner.matrix(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute)
+        if (matrix != null) {
             section(
-                header = "Classes before ${cd.label}",
-                footer = "${cd.label} starts ${cd.start.format(DAY)}. Counted from the ${snap.calendar?.classGroupName ?: "academic"} calendar: " +
-                    "instructional days only, holidays skipped, Saturday day orders followed. A lab block counts as one class.",
-            ) {
-                val courses = cd.courses
-                if (courses.isEmpty()) ListRow("No timetable", "Your timetable is empty for this semester.")
-                Rows(courses) { c ->
-                    ListRow(
-                        c.courseTitle,
-                        "${c.courseCode} · ${labLabel(c.isLab)}",
-                        trailing = { Text("${c.classes}", style = MaterialTheme.typography.titleMedium) },
-                    )
-                }
-            }
+                header = "Classes left per subject",
+                footer = "Counted from the ${snap.calendar?.classGroupName ?: "academic"} calendar: instructional days only (Saturdays and Sundays too when VTOP marks them), " +
+                    "holidays skipped, day-order swaps followed. A lab block counts as one class. \"Done\" means that exam has started or passed.",
+            ) { MatrixTable(matrix) }
         }
 
         snap.exams.groupBy { it.examType.ifBlank { "Exams" } }.forEach { (type, list) ->
@@ -93,8 +84,49 @@ fun ExamsScreen(snap: Snapshot) {
 }
 
 @Composable
-private fun Stat(value: String, label: String, modifier: Modifier) {
-    com.shreenipane.orbit.ui.components.Metric(value, label, modifier)
+private fun MatrixTable(m: ExamPlanner.Matrix) {
+    val labels = ExamPlanner.EXAMS.toMap()
+    val colW = 64.dp
+    Column(Modifier.padding(vertical = 6.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+            Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f))
+            m.exams.forEach { (key, start) ->
+                Column(Modifier.width(colW), horizontalAlignment = Alignment.End) {
+                    Text(labels[key] ?: key, style = MaterialTheme.typography.labelLarge)
+                    Text(start.format(SHORT), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        m.rows.forEach { r ->
+            RowDivider()
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(r.courseTitle, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text("${r.courseCode} · ${labLabel(r.isLab)}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                m.exams.forEach { (key, _) ->
+                    val v = r.left[key]
+                    Text(
+                        v?.toString() ?: "Done",
+                        modifier = Modifier.width(colW),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                        style = if (v == null) MaterialTheme.typography.bodySmall else MaterialTheme.typography.titleMedium,
+                        color = if (v == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val SHORT = DateTimeFormatter.ofPattern("d MMM")
+
+@Composable
+private fun Stat(value: String, label: String, modifier: Modifier, fill: androidx.compose.ui.graphics.Color) {
+    com.shreenipane.orbit.ui.components.Metric(value, label, modifier, fill = fill)
 }
 
 @Composable

@@ -23,3 +23,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Fonts in app/src/main/res/font/ are licensed under the SIL Open Font License 1.1
+(see licenses/): Pangolin (Kevin Burke) and Poppins (Indian Type Foundry).
+
+The pastel neo-brutalist palette and style follow FFCS-inator by CodeChef-VIT
+(https://github.com/CodeChefVIT/ffcs, MIT License, Copyright (c) 2025 CodeChef-VIT).
+No logos, illustrations or names from that project are used.

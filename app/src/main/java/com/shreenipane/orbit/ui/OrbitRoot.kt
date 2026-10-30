@@ -122,20 +122,20 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             Column {
-                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                HorizontalDivider(thickness = 2.dp, color = com.shreenipane.orbit.ui.theme.Pastel.Ink)
+                NavigationBar(containerColor = com.shreenipane.orbit.ui.theme.Pastel.CardTeal, tonalElevation = 0.dp) {
                     Tab.entries.forEachIndexed { i, t ->
                         NavigationBarItem(
                             selected = tab == i,
                             onClick = { if (tab == i && t == Tab.More) more = null; tab = i },
                             icon = { Icon(t.icon, contentDescription = null) },
-                            label = { Text(t.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
+                            label = { Text(t.label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) },
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                indicatorColor = Color.Transparent,
+                                selectedIconColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
+                                selectedTextColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
+                                unselectedIconColor = com.shreenipane.orbit.ui.theme.Pastel.InkMuted,
+                                unselectedTextColor = com.shreenipane.orbit.ui.theme.Pastel.InkMuted,
+                                indicatorColor = com.shreenipane.orbit.ui.theme.Pastel.Yellow,
                             ),
                         )
                     }
@@ -180,8 +180,8 @@ fun LockScreen(onUnlock: () -> Unit) {
     ) {
         Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(12.dp))
-        Text("Orbit is locked", style = MaterialTheme.typography.titleLarge)
+        Text("Orbit is locked", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onUnlock, shape = MaterialTheme.shapes.medium) { Text("Unlock") }
+        com.shreenipane.orbit.ui.components.BrutalButton("Unlock", onUnlock)
     }
 }

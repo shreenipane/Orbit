@@ -2,33 +2,36 @@
 
 package com.shreenipane.orbit.ui.attendance
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.shreenipane.orbit.core.calc.AttendanceCalc
 import com.shreenipane.orbit.core.calc.ExamPlanner
@@ -37,6 +40,7 @@ import com.shreenipane.orbit.core.model.Snapshot
 import com.shreenipane.orbit.ui.components.EmptyNote
 import com.shreenipane.orbit.ui.components.ListRow
 import com.shreenipane.orbit.ui.components.OrbitScreen
+import com.shreenipane.orbit.ui.components.RowDivider
 import com.shreenipane.orbit.ui.components.Rows
 import com.shreenipane.orbit.ui.components.Tag
 import com.shreenipane.orbit.ui.components.ThinRing
@@ -46,10 +50,43 @@ import com.shreenipane.orbit.ui.theme.Good
 import com.shreenipane.orbit.ui.theme.Warn
 import com.shreenipane.orbit.ui.theme.attendanceColor
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+private val DATE = DateTimeFormatter.ofPattern("EEE, d MMM")
+private val WEEKDAY = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+/** What to tell the user about one course, given how many classes are really left. */
+data class AttendancePlan(val tag: String, val color: Color, val line: String)
+
+fun attendancePlan(a: AttendanceRecord, remaining: Int?): AttendancePlan {
+    val pct = AttendanceCalc.percent(a.attended, a.total)
+    if (remaining == null) {
+        val need = AttendanceCalc.neededInARow(a.attended, a.total)
+        val skip = AttendanceCalc.skippable(a.attended, a.total)
+        return when {
+            need > 0 -> AttendancePlan("Attend $need", Bad, "Attend the next $need in a row to reach 75%")
+            skip > 0 -> AttendancePlan("Skip $skip", Good, "You can skip $skip and stay at 75%")
+            else -> AttendancePlan("On the line", Warn, "Don't skip the next class")
+        }
+    }
+    if (remaining == 0) {
+        return AttendancePlan("Final", attendanceColor(pct), "No classes left this semester")
+    }
+    val miss = AttendanceCalc.missableOfRemaining(a.attended, a.total, remaining)
+    val best = AttendanceCalc.bestPossible(a.attended, a.total, remaining)
+    return when {
+        miss < 0 -> AttendancePlan("Max %.0f%%".format(best), Bad,
+            "75% is out of reach: best possible is %.1f%% even attending all $remaining left".format(best))
+        miss == 0 -> AttendancePlan("Attend all $remaining", Warn, "Attend all $remaining classes left to finish at 75%")
+        pct < 75.0 -> AttendancePlan("Attend ${remaining - miss}/$remaining", Warn,
+            "Attend at least ${remaining - miss} of the $remaining classes left to reach 75%")
+        else -> AttendancePlan("Can miss $miss", Good, "You can miss $miss of the $remaining classes left")
+    }
+}
 
 @Composable
 fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit) {
-    var open by remember { mutableStateOf<Pair<AttendanceRecord, Int?>?>(null) }
+    var open by remember { mutableStateOf<AttendanceRecord?>(null) }
     val now = LocalDateTime.now()
     val minute = now.hour * 60 + now.minute
     val overall = snap.attendance.let { a ->
@@ -70,91 +107,132 @@ fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit)
         val rows = snap.attendance
             .map { it to ExamPlanner.remainingFor(it, snap.calendar, snap.timetable.sessions, now.toLocalDate(), minute) }
             .sortedBy { AttendanceCalc.percent(it.first.attended, it.first.total) }
+        val end = snap.calendar?.let(ExamPlanner::semesterEnd)?.minusDays(1)
         section(
             header = "Courses",
-            footer = "Counts use the 75% rule. " + if (snap.calendar != null)
-                "\"Left\" counts instructional days in the ${snap.calendar.classGroupName} calendar, one class per timetable block."
-            else "Sign in again to load the academic calendar for classes-left counts.",
+            footer = if (snap.calendar != null && end != null)
+                "Classes left are counted from the ${snap.calendar.classGroupName} academic calendar up to the last instructional day (${end.format(DATE)}), including instructional Saturdays and Sundays and day-order swaps. Tap a course to plan."
+            else "Sign in again to load the academic calendar; until then, counts assume classes continue indefinitely.",
         ) {
-            Rows(rows, inset = 74.dp) { (a, remaining) -> AttendanceRow(a, remaining) { open = a to remaining } }
+            Rows(rows, inset = 74.dp) { (a, remaining) ->
+                val plan = attendancePlan(a, remaining)
+                ListRow(
+                    title = a.courseTitle,
+                    subtitle = "${a.attended}/${a.total} · ${a.courseType.ifBlank { a.slot }}" +
+                        (remaining?.let { "\n$it classes left" } ?: ""),
+                    leading = { ThinRing(a.vtopPercent / 100f, attendanceColor(AttendanceCalc.percent(a.attended, a.total)), "${a.vtopPercent}") },
+                    trailing = { Tag(plan.tag, plan.color) },
+                    onClick = { open = a },
+                )
+            }
         }
     }
 
-    open?.let { (a, remaining) -> PlannerSheet(a, remaining) { open = null } }
+    open?.let { a -> PlannerSheet(a, snap, now, minute) { open = null } }
 }
 
+/**
+ * Calculator for one course: every remaining class from the academic
+ * calendar, each one toggled attend/miss, with the final percentage live.
+ * You can't plan more classes than the calendar has left.
+ */
 @Composable
-private fun AttendanceRow(a: AttendanceRecord, remaining: Int?, onClick: () -> Unit) {
-    val pct = AttendanceCalc.percent(a.attended, a.total)
-    val skip = AttendanceCalc.skippable(a.attended, a.total)
-    val need = AttendanceCalc.neededInARow(a.attended, a.total)
-    ListRow(
-        title = a.courseTitle,
-        subtitle = buildString {
-            append("${a.attended}/${a.total} · ${a.courseType.ifBlank { a.slot }}")
-            if (remaining != null) {
-                val miss = AttendanceCalc.missableOfRemaining(a.attended, a.total, remaining)
-                append("\n$remaining left this semester · ")
-                append(if (miss < 0) "75% out of reach" else "can miss $miss")
-            }
-        },
-        leading = { ThinRing(a.vtopPercent / 100f, attendanceColor(pct), "${a.vtopPercent}") },
-        trailing = {
-            when {
-                need > 0 -> Tag("Attend $need", Bad)
-                skip > 0 -> Tag("Skip $skip", Good)
-                else -> Tag("On the line", Warn)
-            }
-        },
-        onClick = onClick,
-    )
-}
-
-@Composable
-private fun PlannerSheet(a: AttendanceRecord, remaining: Int?, onDismiss: () -> Unit) {
-    var present by remember { mutableIntStateOf(0) }
-    var absent by remember { mutableIntStateOf(0) }
-    val projected = AttendanceCalc.projected(a.attended, a.total, present, absent)
+private fun PlannerSheet(a: AttendanceRecord, snap: Snapshot, now: LocalDateTime, minute: Int, onDismiss: () -> Unit) {
+    val cal = snap.calendar
+    val dates = remember(a, cal) {
+        if (cal == null) emptyList()
+        else ExamPlanner.classDates(cal, snap.timetable.sessions, a.courseCode, ExamPlanner.isLab(a), now.toLocalDate(), minute)
+    }
+    val missed = remember(a) { mutableStateListOf<Int>() }
+    val attend = dates.size - missed.size
+    val finalPct = AttendanceCalc.projected(a.attended, a.total, attend, missed.size)
+    val plan = attendancePlan(a, if (cal == null) null else dates.size)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
-            Text(a.courseTitle, style = MaterialTheme.typography.titleLarge)
-            Text("${a.courseCode} · ${a.slot} · ${a.faculty}", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(20.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ThinRing((projected / 100).toFloat(), attendanceColor(projected), "%.1f".format(projected), size = 84.dp, stroke = 6.dp)
-                Spacer(Modifier.width(20.dp))
-                Column {
-                    Text("Attend $present, miss $absent", style = MaterialTheme.typography.bodyMedium)
-                    Text("${a.attended + present}/${a.total + present + absent} classes", fontWeight = FontWeight.SemiBold)
-                    if (remaining != null) {
-                        Text("$remaining classes left this semester", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.92f), contentPadding = PaddingValues(bottom = 32.dp)) {
+            item {
+                Column(Modifier.padding(horizontal = 24.dp)) {
+                    Text(a.courseTitle, style = MaterialTheme.typography.titleLarge)
+                    Text("${a.courseCode} · ${a.slot} · ${a.faculty}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(20.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ThinRing((finalPct / 100).toFloat(), attendanceColor(finalPct), "%.1f".format(finalPct), size = 84.dp, stroke = 6.dp)
+                        Spacer(Modifier.width(20.dp))
+                        Column {
+                            Text("Final attendance", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${a.attended + attend}/${a.total + dates.size} classes", fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (cal == null) "Academic calendar not loaded" else "Attending $attend of ${dates.size} left",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(plan.line, color = plan.color, style = MaterialTheme.typography.bodyMedium)
+                    val matrix = remember(a, cal) { ExamPlanner.matrix(cal, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute) }
+                    val row = matrix?.rows?.firstOrNull { it.courseCode == a.courseCode && it.isLab == ExamPlanner.isLab(a) }
+                    if (matrix != null && row != null) {
+                        val labels = ExamPlanner.EXAMS.toMap()
+                        Text(
+                            "Classes left · " + matrix.exams.joinToString("  ·  ") { (key, _) ->
+                                "before ${labels[key]}: ${row.left[key]?.toString() ?: "done"}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    if (a.debarStatus.isNotBlank() && a.debarStatus != "-") {
+                        Spacer(Modifier.height(6.dp))
+                        Text("VTOP: ${a.debarStatus}", color = Bad, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (dates.isNotEmpty()) {
+                        Row(Modifier.padding(top = 16.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { missed.clear() }) { Text("Attend all") }
+                            OutlinedButton(onClick = { missed.clear(); missed.addAll(dates.indices) }) { Text("Miss all") }
+                        }
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            Stepper("Attend", present) { present = it }
-            Stepper("Miss", absent) { absent = it }
-            if (a.debarStatus.isNotBlank() && a.debarStatus != "-") {
-                Spacer(Modifier.height(12.dp))
-                Text("VTOP debar status: ${a.debarStatus}", color = Bad)
+            if (cal != null && dates.isEmpty()) {
+                item {
+                    Text("No classes of this course left in the calendar.", style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(24.dp))
+                }
+            }
+            itemsIndexed(dates) { i, cd ->
+                Column {
+                    if (i > 0) RowDivider(72.dp)
+                    val attending = i !in missed
+                    Row(
+                        Modifier.fillMaxWidth().clickable { if (attending) missed.add(i) else missed.remove(i) }
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = attending, onCheckedChange = { if (it) missed.remove(i) else missed.add(i) })
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                            Text("${cd.date.format(DATE)} · ${cd.session.start}", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                listOfNotNull(
+                                    cd.session.venue,
+                                    cd.followsDay?.let { "${WEEKDAY[it - 1]} timetable" },
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(if (attending) "Attend" else "Miss", style = MaterialTheme.typography.labelLarge,
+                            color = if (attending) Good else Bad)
+                    }
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun Stepper(label: String, value: Int, onChange: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        FilledTonalIconButton(onClick = { if (value > 0) onChange(value - 1) }) { Icon(Icons.Rounded.Remove, "Less") }
-        Text("$value", style = MaterialTheme.typography.titleLarge, modifier = Modifier.width(48.dp), textAlign = TextAlign.Center)
-        FilledTonalIconButton(onClick = { onChange(value + 1) }) { Icon(Icons.Rounded.Add, "More") }
     }
 }

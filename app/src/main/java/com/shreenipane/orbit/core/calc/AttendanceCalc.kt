@@ -40,6 +40,9 @@ object AttendanceCalc {
         return if (k < 0) -1 else k.coerceAtMost(remaining)
     }
 
+    /** Highest percentage still possible: attend every one of the [remaining] classes. */
+    fun bestPossible(attended: Int, total: Int, remaining: Int): Double = percent(attended + remaining, total + remaining)
+
     /** What the percentage becomes after attending [present] and missing [absent] more classes. */
     fun projected(attended: Int, total: Int, present: Int, absent: Int): Double =
         percent(attended + present, total + present + absent)

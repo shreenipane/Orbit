@@ -151,12 +151,13 @@ fun RemindersScreen(
                 }
             }
         }
-        FloatingActionButton(
+        com.shreenipane.orbit.ui.components.BrutalButton(
+            text = "Add",
             onClick = { creating = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ) { Icon(Icons.Rounded.Add, "Add reminder") }
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 24.dp),
+            fill = com.shreenipane.orbit.ui.theme.Pastel.Yellow,
+            leading = { Icon(Icons.Rounded.Add, null, tint = com.shreenipane.orbit.ui.theme.Pastel.Ink) },
+        )
     }
 
     if (creating || editing != null) {

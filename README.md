@@ -7,6 +7,7 @@ A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VT
 * **Attendance:** how many classes you can skip or need to attend, plus an attend/miss planner
 * **Marks** by course or by exam (CAT-1 across all courses)
 * **Exams:** how many classes are left in each course before CAT 1, CAT 2 and FAT, read from VTOP's academic calendar (B.Tech entries only, General (Flexible) class group by default; holidays skipped, Saturday day orders followed), plus schedule, venue and seat
+* **Holidays:** the next break from the academic calendar (name, dates, days off, weekdays missed, how far away) and every break left this semester
 * **Deadlines:** VTOP digital assignments with days left, past-due and submitted lists, and alerts the evening before and on the day
 * **CGPA planner:** the SGPA you need for a target CGPA, and a "what if I get…" grade picker
 * **Reminders and assignments**, with notifications when they're due
@@ -16,6 +17,10 @@ A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VT
 * **Fingerprint login locker:** after one password sign-in, Orbit can save your VTOP login encrypted with AES-256-GCM. The key lives in Android Keystore, can't be exported, and unlocks only after a strong-biometric check. It persists until you sign out (Android wipes it if you enrol a new fingerprint). Signing in then means a fingerprint plus typing the captcha. SHA-256 isn't used for this, because it's a one-way hash and a stored password has to be readable again.
 
 It's a clean-room rebuild of the feature set that iOS VTOP companions like VITals offer. No code, assets or branding come from those apps.
+
+## Look
+
+Pastel neo-brutalism: a soft teal page, pastel cards with black outlines and hard offset shadows, Pangolin for headings and Poppins for text. The palette follows FFCS-inator by CodeChef-VIT (MIT); see `NOTICE`.
 
 ## Get the APK
 
@@ -32,7 +37,7 @@ Debug builds are signed with a fresh key on each CI run, so uninstall the old bu
 2. Run the `app` configuration on a device or emulator (Android 8.0+, API 26).
 3. Pick your campus, tap **Sign in with VTOP**, and log in on VTOP's own page (captcha and OTP included).
 
-To run the unit tests: `gradle test`, or right-click `app/src/test` in Android Studio → Run (20 tests: parsers including the academic calendar and DAs, classes-left counting, attendance and CGPA maths, exam times, share codes, free time, sync diff)
+To run the unit tests: `gradle test`, or right-click `app/src/test` in Android Studio → Run (25 tests: parsers including the academic calendar and DAs, classes-left counting, attendance and CGPA maths, exam times, share codes, free time, sync diff)
 
 ## How it works
 

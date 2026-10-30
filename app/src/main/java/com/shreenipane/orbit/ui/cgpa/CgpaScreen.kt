@@ -55,10 +55,10 @@ fun CgpaScreen(snap: Snapshot) {
         val required = GradeCalc.requiredSgpa(standing, semCredits, target.toDouble())
 
         item {
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Metric("%.2f".format(standing.cgpa), "Current CGPA", Modifier.weight(1f))
-                Metric(history.creditsEarned?.let { "%.0f".format(it) } ?: "%.0f".format(standing.gradedCredits), "Credits earned", Modifier.weight(1f))
-                Metric("%.0f".format(semCredits), "This semester", Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Metric("%.2f".format(standing.cgpa), "Current CGPA", Modifier.weight(1f), fill = com.shreenipane.orbit.ui.theme.Pastel.Lavender)
+                Metric(history.creditsEarned?.let { "%.0f".format(it) } ?: "%.0f".format(standing.gradedCredits), "Credits earned", Modifier.weight(1f), fill = com.shreenipane.orbit.ui.theme.Pastel.Green)
+                Metric("%.0f".format(semCredits), "This sem", Modifier.weight(1f), fill = com.shreenipane.orbit.ui.theme.Pastel.Sky)
             }
         }
 

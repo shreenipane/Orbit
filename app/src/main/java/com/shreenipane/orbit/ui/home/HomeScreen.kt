@@ -30,6 +30,9 @@ import com.shreenipane.orbit.core.model.ClassSession
 import com.shreenipane.orbit.core.model.Reminder
 import com.shreenipane.orbit.core.model.Snapshot
 import com.shreenipane.orbit.ui.components.Dot
+import com.shreenipane.orbit.ui.components.Hero
+import com.shreenipane.orbit.ui.components.Tag
+import com.shreenipane.orbit.ui.theme.Pastel
 import com.shreenipane.orbit.ui.components.EmptyNote
 import com.shreenipane.orbit.ui.components.ListRow
 import com.shreenipane.orbit.ui.components.Metric
@@ -65,11 +68,15 @@ fun HomeScreen(
 
     val today = now.toLocalDate()
     val minute = now.hour * 60 + now.minute
-    val todayOrder = snap.calendar?.days?.firstOrNull { it.date == today.toString() }?.dayOrder
-    val sched = Schedule.now(snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value, minute)
+    val todayCal = snap.calendar?.days?.firstOrNull { it.date == today.toString() }
+    val todayOrder = todayCal?.dayOrder
+    // Holidays and exam days on the academic calendar have no classes.
+    val dayOff = todayCal != null && todayCal.kind in setOf(com.shreenipane.orbit.core.model.DayKind.HOLIDAY, com.shreenipane.orbit.core.model.DayKind.NO_INSTRUCTION, com.shreenipane.orbit.core.model.DayKind.EXAM)
+    val sched = Schedule.now(if (dayOff) emptyList() else snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value, minute)
     val low = snap.attendance.filter { AttendanceCalc.percent(it.attended, it.total) < 75.0 }
     val standing = snap.grades?.let(GradeCalc::standing)
     val countdown = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute).firstOrNull()
+    val nextBreak = com.shreenipane.orbit.core.calc.Breaks.upcoming(snap.calendar, today).firstOrNull()
     val pendingDas = snap.assignments.filter { !it.submitted }
         .mapNotNull { da -> ExamTime.parseVtopDate(da.dueDate)?.let { da to it } }
         .filter { !it.second.isBefore(today) }
@@ -90,23 +97,24 @@ fun HomeScreen(
         item { NowCard(sched) }
 
         item {
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric(overall?.let { "%.0f%%".format(it) } ?: "—", "Attendance", Modifier.weight(1f),
-                    valueColor = overall?.let(::attendanceColor) ?: androidx.compose.ui.graphics.Color.Unspecified)
-                Metric(standing?.let { "%.2f".format(it.cgpa) } ?: "—", "CGPA", Modifier.weight(1f))
-                Metric(countdown?.let { "${it.daysLeft}d" } ?: "—", countdown?.let { "To ${it.label}" } ?: "Next exam", Modifier.weight(1f))
+                    fill = overall?.let { com.shreenipane.orbit.ui.theme.pastelFor(attendanceColor(it)) } ?: Pastel.Yellow)
+                Metric(standing?.let { "%.2f".format(it.cgpa) } ?: "—", "CGPA", Modifier.weight(1f), fill = Pastel.Lavender)
+                Metric(countdown?.let { "${it.daysLeft}d" } ?: "—", countdown?.let { "To ${it.label}" } ?: "Next exam", Modifier.weight(1f),
+                    fill = Pastel.Sky)
             }
         }
 
         section(header = "Classes today") {
             if (sched.today.isEmpty()) {
-                ListRow("No classes today", "Pull down to refresh if that looks wrong.")
+                ListRow("No classes today", todayCal?.label?.takeIf { dayOff && it.isNotBlank() } ?: "Pull down to refresh if that looks wrong.")
             } else {
                 Rows(sched.today, inset = 82.dp) { s -> ClassRow(s, isNow = s == sched.ongoing) }
             }
         }
 
-        if (countdown != null || pendingDas.isNotEmpty()) {
+        if (countdown != null || pendingDas.isNotEmpty() || nextBreak != null) {
             section(header = "Coming up", action = "See all" to { onOpen(MoreDestination.Exams) }) {
                 if (countdown != null) {
                     ListRow(
@@ -116,8 +124,18 @@ fun HomeScreen(
                         chevron = true,
                     )
                 }
+                if (nextBreak != null) {
+                    if (countdown != null) RowDivider()
+                    ListRow(
+                        title = "${nextBreak.title} · ${nextBreak.days} ${if (nextBreak.days == 1) "day" else "days"} off",
+                        subtitle = com.shreenipane.orbit.ui.holidays.breakRange(nextBreak) + " · " +
+                            com.shreenipane.orbit.ui.holidays.breakWhen(nextBreak, today),
+                        onClick = { onOpen(MoreDestination.Holidays) },
+                        chevron = true,
+                    )
+                }
                 pendingDas.take(3).forEachIndexed { i, (da, due) ->
-                    if (i > 0 || countdown != null) RowDivider()
+                    if (i > 0 || countdown != null || nextBreak != null) RowDivider()
                     val days = ChronoUnit.DAYS.between(today, due)
                     ListRow(
                         title = da.title,
@@ -158,10 +176,10 @@ fun HomeScreen(
         if (low.isNotEmpty()) {
             section(header = "Below 75%") {
                 Rows(low) { a ->
-                    val need = AttendanceCalc.neededInARow(a.attended, a.total)
+                    val remaining = ExamPlanner.remainingFor(a, snap.calendar, snap.timetable.sessions, today, minute)
                     ListRow(
                         a.courseTitle,
-                        "Attend the next $need in a row to reach 75%",
+                        com.shreenipane.orbit.ui.attendance.attendancePlan(a, remaining).line,
                         trailing = { Text("${a.vtopPercent}%", fontWeight = FontWeight.SemiBold, color = Bad) },
                     )
                 }
@@ -181,38 +199,39 @@ fun HomeScreen(
 
 @Composable
 private fun NowCard(s: Schedule.Now) {
-    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp)) {
-            val ongoing = s.ongoing
-            val next = s.next
-            val on = MaterialTheme.colorScheme.onPrimary
-            when {
-                ongoing != null -> {
-                    Text("NOW · UNTIL ${ongoing.end}", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
-                    Spacer(Modifier.height(6.dp))
-                    Text(ongoing.courseTitle, style = MaterialTheme.typography.titleLarge, color = on)
-                    Text("${ongoing.venue} · ${ongoing.slot}", style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.85f))
-                    if (next != null) {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Next: ${next.courseTitle} at ${next.start}", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.85f))
-                    }
+    val ongoing = s.ongoing
+    val next = s.next
+    val fill = when {
+        ongoing != null -> Pastel.Green
+        next != null -> Pastel.Sky
+        else -> Pastel.Lavender
+    }
+    Hero(fill) {
+        val ink = Pastel.Ink
+        when {
+            ongoing != null -> {
+                Tag("Now · until ${ongoing.end}", com.shreenipane.orbit.ui.theme.Good)
+                Spacer(Modifier.height(10.dp))
+                Text(ongoing.courseTitle, style = MaterialTheme.typography.headlineMedium, color = ink)
+                Text("${ongoing.venue} · ${ongoing.slot}", style = MaterialTheme.typography.bodyMedium, color = ink)
+                if (next != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Next: ${next.courseTitle} at ${next.start}", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
                 }
-                next != null -> {
-                    Text("NEXT · IN ${humanMinutes(s.minutesToNext ?: 0).uppercase()}", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
-                    Spacer(Modifier.height(6.dp))
-                    Text(next.courseTitle, style = MaterialTheme.typography.titleLarge, color = on)
-                    Text("${next.venue} · ${next.start}–${next.end}", style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.85f))
-                }
-                s.today.isNotEmpty() -> {
-                    Text("DONE FOR TODAY", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
-                    Spacer(Modifier.height(6.dp))
-                    Text("${s.today.size} classes finished", style = MaterialTheme.typography.titleLarge, color = on)
-                }
-                else -> {
-                    Text("FREE DAY", style = MaterialTheme.typography.labelMedium, color = on.copy(alpha = 0.75f))
-                    Spacer(Modifier.height(6.dp))
-                    Text("No classes today", style = MaterialTheme.typography.titleLarge, color = on)
-                }
+            }
+            next != null -> {
+                Tag("Next · in ${humanMinutes(s.minutesToNext ?: 0)}", com.shreenipane.orbit.ui.theme.Warn)
+                Spacer(Modifier.height(10.dp))
+                Text(next.courseTitle, style = MaterialTheme.typography.headlineMedium, color = ink)
+                Text("${next.venue} · ${next.start}–${next.end}", style = MaterialTheme.typography.bodyMedium, color = ink)
+            }
+            s.today.isNotEmpty() -> {
+                Text("Done for today!", style = MaterialTheme.typography.headlineMedium, color = ink)
+                Text("${s.today.size} classes finished", style = MaterialTheme.typography.bodyMedium, color = ink)
+            }
+            else -> {
+                Text("Free day!", style = MaterialTheme.typography.headlineMedium, color = ink)
+                Text("No classes today", style = MaterialTheme.typography.bodyMedium, color = ink)
             }
         }
     }
@@ -227,7 +246,7 @@ fun ClassRow(s: ClassSession, isNow: Boolean, trailing: String? = null) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isNow) { Dot(MaterialTheme.colorScheme.primary); Spacer(Modifier.width(6.dp)) }
+                if (isNow) { Dot(com.shreenipane.orbit.ui.theme.Pastel.Green); Spacer(Modifier.width(6.dp)) }
                 Text(s.courseTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }

@@ -1,8 +1,10 @@
 <resources>
     <!-- Compose draws everything; this only sets the window before the first frame. -->
-    <style name="Theme.Orbit" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Orbit" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/page</item>
     </style>
-    <color name="ic_launcher_background">#1F1B3A</color>
+    <color name="ic_launcher_background">#CEE4E5</color>
+    <color name="page">#CEE4E5</color>
 </resources>

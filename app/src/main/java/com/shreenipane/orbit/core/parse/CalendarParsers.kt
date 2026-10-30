@@ -64,12 +64,32 @@ object CalendarParsers {
         return null
     }
 
+    private const val WD = "(monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thur|thu|friday|fri|saturday|sat|sunday|sun)\\b"
+
+    /**
+     * Which weekday's timetable a date follows, when VTOP says so: "Monday Day
+     * Order", "Saturday - Wednesday Day Order", "Tuesday timetable", "follows
+     * Friday schedule". Null means the date's own weekday.
+     */
+    internal fun dayOrderOf(text: String): Int? {
+        val patterns = listOf(
+            Regex("\\b$WD\\s*(?:'s)?\\s*(?:day\\s*-?\\s*order|time\\s*-?\\s*table|schedule)", RegexOption.IGNORE_CASE),
+            Regex("follow(?:s|ing)?\\s+(?:the\\s+)?$WD", RegexOption.IGNORE_CASE),
+            Regex("day\\s*order\\s*[:\\-]?\\s*$WD", RegexOption.IGNORE_CASE),
+        )
+        val prefixes = listOf("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+        for (p in patterns) {
+            val m = p.find(text) ?: continue
+            return prefixes.indexOf(m.groupValues[1].lowercase().take(3)) + 1
+        }
+        return null
+    }
+
     internal fun classify(texts: List<String>): Triple<DayKind, String?, Int?> {
         val relevant = texts.filterNot { OTHER_PROGRAMME.containsMatchIn(it) }
         if (relevant.isEmpty()) return Triple(DayKind.UNKNOWN, null, null)
         val joined = relevant.joinToString(" ")
-        val dayOrder = Regex("(${WEEKDAYS.joinToString("|")})\\s+day\\s*order", RegexOption.IGNORE_CASE)
-            .find(joined)?.groupValues?.get(1)?.lowercase()?.let { WEEKDAYS.indexOf(it) + 1 }
+        val dayOrder = dayOrderOf(joined)
         examOf(joined)?.let { return Triple(DayKind.EXAM, it, null) }
         val lower = joined.lowercase()
         return when {
