@@ -1,0 +1,78 @@
+# Orbit: a VTOP companion for Android
+
+A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VTOP and cached on the phone:
+
+* **Today:** the class happening now and the next one, the next exam, deadlines due soon, and courses below 75%
+* **Timetable** by day, with back-to-back lab slots merged into one block
+* **Attendance:** how many classes you can skip or need to attend, plus an attend/miss planner
+* **Marks** by course or by exam (CAT-1 across all courses)
+* **Exams:** schedule, venue, seat and countdown
+* **CGPA planner:** the SGPA you need for a target CGPA, and a "what if I get…" grade picker
+* **Reminders and assignments**, with notifications when they're due
+* **Friends:** swap timetables with a share code (no server involved) and see when you're all free
+* **Alerts:** before each class, the evening before an exam and an hour before it, and for new marks or absences after a background sync
+* **App lock** with fingerprint, face or screen lock, plus a display name of your choice
+
+It's a clean-room rebuild of the feature set that iOS VTOP companions like VITals offer. No code, assets or branding come from those apps.
+
+## Get the APK
+
+Every push to `main` runs `.github/workflows/build-apk.yml`, which runs the unit tests and builds a debug APK with Google's official Android SDK. Download it from either place:
+
+* **Releases** (easiest on a phone): the newest `Orbit build N` prerelease → `orbit-N.apk`
+* **Actions** → latest run → Artifacts → `orbit-apk`
+
+Debug builds are signed with a fresh key on each CI run, so uninstall the old build before installing a new one. If you want in-place updates, add a fixed signing key as a repository secret.
+
+## Run it from Android Studio
+
+1. Open this folder in Android Studio (Ladybug or newer) and let Gradle sync.
+2. Run the `app` configuration on a device or emulator (Android 8.0+, API 26).
+3. Pick your campus, tap **Sign in with VTOP**, and log in on VTOP's own page (captcha and OTP included).
+
+To run the unit tests: `./gradlew test` (14 tests: parsers, attendance and CGPA maths, exam times, share codes, free time, sync diff)
+
+## How it works
+
+```
+LoginScreen (WebView on VTOP) ──cookies──▶ CookieManager ◀──── WebViewCookieJar ── OkHttp
+                                                                       │
+VtopClient: /vtop/content → _csrf + authorizedIDX                      │
+            POST processViewTimeTable / processViewStudentAttendance / │
+                 doStudentMarkView / StudentGradeHistory  ─────────────┘
+                     │ HTML
+                     ▼
+            VtopParsers (jsoup, pure JVM, unit-tested on recorded pages)
+                     ▼
+            Repository → snapshot.json (offline cache) → AppViewModel → Compose screens
+```
+
+* **Sign-in in a WebView.** VTOP's captcha, OTP step and login quirks all work unchanged, and the app never sees or stores your password. The session lives in WebView cookies. When VTOP expires it, the app keeps showing saved data with a "Sign in" banner.
+* **Data over OkHttp.** VTOP's data endpoints are plain form POSTs that take `_csrf`, `authorizedID` and an `x` GMT timestamp. Page-shell endpoints (semester list, grade history) take `verifyMenu` and `nocache` instead. An expired session comes back as HTTP 404.
+* **Parsers locate columns by their header text** where they can, not by fixed position, so small layout changes don't break them.
+
+| Package | What's in it |
+|---|---|
+| `core/model` | Serializable data classes |
+| `core/parse` | `VtopParsers`: semesters, timetable grid + registered courses, attendance, marks, grade history |
+| `core/calc` | `AttendanceCalc` (75% rule), `GradeCalc` (10-point scale, SGPA/CGPA, required SGPA), `Schedule` (now/next) |
+| `core` | `ShareCode` (friend codes), `calc/ExamTime`, `calc/FreeTime`, `calc/SyncDiff` |
+| `data` | `Campus`, `WebViewCookieJar`, `VtopClient`, `Repository` (snapshot, reminders, friends, settings), `Notifier` |
+| `work` | WorkManager jobs: 6-hourly sync, alert planning, class/exam/reminder alerts |
+| `ui` | Today, Timetable, Attendance, Marks, More (Exams, CGPA, Reminders, Friends, Settings), lock screen |
+
+## Status and known gaps
+
+* **Tested:** the parsers and maths, against real VTOP pages recorded at VIT-AP (same VTOP build as Vellore) plus Vellore-style course codes such as `BCSE302L`.
+* **Not yet tested:** the UI and network layers haven't been compiled or run against live Vellore VTOP. Check these first:
+  * The login detector in `LoginScreen.isLoggedInUrl` assumes VTOP lands on `/vtop/content` after login. If you stay on the WebView after logging in, check the URL VTOP actually lands on and adjust.
+  * If you get a TLS error ("Trust anchor … not found"), see `res/xml/network_security_config.xml`.
+  * If a screen comes back empty, save that endpoint's raw HTML into `app/src/test/resources/fixtures/`, write a test, and fix the parser against it.
+* **Background sync limits:** VTOP sessions are short-lived, and Orbit deliberately never stores your password. Background sync therefore only works while your last sign-in is still valid. After that you get one "sign in to keep syncing" notification and saved data stays on screen.
+* **Alert timing:** WorkManager can delay alerts by a few minutes when the phone is idle, in exchange for needing no exact-alarm permission.
+* **Exam parser:** tested against a hand-built page that follows VTOP's documented layout, not yet against a live Vellore exam schedule.
+* **Assumptions:** attendance uses the 75% threshold. Lab weightage follows however VTOP counts classes for that course.
+
+## Credits
+
+Endpoint shapes and the recorded test pages in `app/src/test/resources/fixtures/` (except `marks_synthetic.html`) come from [vitap-vtop-client](https://github.com/Udhay-Adithya/vitap-vtop-client) by Udhay Adithya (MIT License). See `NOTICE`.

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext stays off. If VTOP's TLS handshake fails with "Trust anchor for
+  certification path not found", the portal is serving an incomplete chain
+  (VIT-AP is known to omit its Sectigo intermediate). Fix: export the missing
+  intermediate .pem from a desktop browser, save it as res/raw/vtop_intermediate.pem
+  and uncomment the domain-config below.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!--
+    <domain-config>
+        <domain includeSubdomains="true">vit.ac.in</domain>
+        <domain includeSubdomains="true">vitap.ac.in</domain>
+        <domain includeSubdomains="true">vitbhopal.ac.in</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/vtop_intermediate" />
+        </trust-anchors>
+    </domain-config>
+    -->
+</network-security-config>
