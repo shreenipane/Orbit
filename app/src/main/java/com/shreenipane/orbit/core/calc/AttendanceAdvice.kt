@@ -30,7 +30,7 @@ object AttendanceAdvice {
         }
         if (remaining <= 0) {
             val level = if (now >= 80) Level.GOOD else if (now >= 75) Level.WARN else Level.BAD
-            return Advice("Done", "Classes are over · final ${pct(now)}%", level)
+            return Advice("Done", "No more classes on the calendar · ends at ${pct(now)}%", level)
         }
         val miss = AttendanceCalc.missableOfRemaining(attended, total, remaining)
         val best = AttendanceCalc.bestPossible(attended, total, remaining)

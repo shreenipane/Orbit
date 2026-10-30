@@ -133,11 +133,23 @@ object CampusParsers {
     }
 
     /** Biometric log rows: serial, date, time, location. */
-    fun biometric(html: String): List<BiometricEntry> =
-        Jsoup.parse(html).select("tr").mapNotNull { tr ->
+    /**
+     * The biometric log table. Columns are found by their headings (Date, Time,
+     * Location/Device/Venue); without headings, Sl.No, date, time, location.
+     */
+    fun biometric(html: String): List<BiometricEntry> {
+        val rows = Jsoup.parse(html).select("tr")
+        val head = rows.firstOrNull { r -> r.select("> th, > td").any { it.clean().contains("time", true) } }
+            ?.select("> th, > td")?.map { it.clean().lowercase() }
+        val iDate = head?.indexOfFirst { it.contains("date") }?.takeIf { it >= 0 } ?: 1
+        val iTime = head?.indexOfFirst { it.contains("time") }?.takeIf { it >= 0 } ?: 2
+        val iLoc = head?.indexOfFirst { Regex("location|device|venue|block|gate|reader|place").containsMatchIn(it) }?.takeIf { it >= 0 } ?: 3
+        return rows.mapNotNull { tr ->
             val c = tr.select("> td").map { it.clean() }
-            if (c.size < 4 || c[0].isEmpty() || !c[0].all(Char::isDigit)) null else BiometricEntry(c[1], c[2], c[3])
+            if (c.size < 3 || c[0].isEmpty() || !c[0].all(Char::isDigit)) null
+            else BiometricEntry(c.getOrElse(iDate) { "" }, c.getOrElse(iTime) { "" }, c.getOrElse(iLoc) { "" })
         }
+    }
 
     /** Published results for one semester (doStudentGradeView). */
     fun gradeView(html: String): List<GradeResult> {

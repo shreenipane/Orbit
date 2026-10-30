@@ -294,5 +294,9 @@ data class CampusInfo(
 )
 
 /** A course added to the FFCS planner: a slot combination like "A1+TA1" or "L31+L32". */
+/** One entry of your own study plan: what to revise on which day. */
+@Serializable
+data class StudyItem(val id: Long, val date: String, val subject: String, val topic: String = "", val done: Boolean = false)
+
 @Serializable
 data class PlannedCourse(val id: Long, val title: String, val slots: String, val credits: Double = 0.0)

@@ -38,3 +38,8 @@ No logos, illustrations or names from that project are used.
 QR generation and scanning use ZXing (https://github.com/zxing/zxing) and
 zxing-android-embedded by JourneyApps (https://github.com/journeyapps/zxing-android-embedded),
 both under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+Past papers are fetched from papers.codechefvit.com, CodeChef-VIT's question-paper
+archive (https://github.com/CodeChefVIT/papers, MIT License, Copyright (c) 2025 CodeChef-VIT).

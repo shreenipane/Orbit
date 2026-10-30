@@ -53,6 +53,7 @@ data class UiState(
     val daUpload: DaUpload = DaUpload.Idle,
     val overrides: List<ClassOverride> = emptyList(),
     val planner: List<PlannedCourse> = emptyList(),
+    val studyPlan: List<com.shreenipane.orbit.core.model.StudyItem> = emptyList(),
     val campusInfo: CampusInfo? = null,
     val campusLoading: Boolean = false,
 )
@@ -79,7 +80,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                 it.copy(
                     loading = false, snapshot = cached, showLogin = cached == null,
                     reminders = repo.reminders(), friends = repo.friends(),
-                    overrides = repo.overrides(), planner = repo.planner(), campusInfo = repo.campusInfo(),
+                    overrides = repo.overrides(), planner = repo.planner(), studyPlan = repo.studyPlan(), campusInfo = repo.campusInfo(),
                 )
             }
             if (cached != null) refresh(silent = true)
@@ -102,7 +103,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
 
     fun newLogin() = repo.newLogin()
 
-    fun debugReport(): java.io.File = repo.debugReport()
+    suspend fun debugReport(): java.io.File = repo.debugReport()
 
     fun requestSignIn() = _state.update { it.copy(showLogin = true) }
 
@@ -120,7 +121,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
             try {
                 val snap = repo.refresh(semesterId)
                 _state.update { it.copy(snapshot = snap, refreshing = false, sessionExpired = false) }
-                Work.planAlerts(app, snap, repo.settings, _state.value.overrides, _state.value.campusInfo)
+                Work.planAlerts(app, snap, repo.settings, _state.value.overrides, null)
                 OrbitWidget.update(app, snap, _state.value.overrides)
             } catch (e: SessionExpiredException) {
                 _state.update {
@@ -176,8 +177,8 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         if (next.backgroundSync != prev.backgroundSync || next.keepSignedIn != prev.keepSignedIn) Work.ensurePeriodic(app, next)
         if (next.weeklyReport != prev.weeklyReport) Work.ensurePeriodic(app, next)
         if (next.classAlerts != prev.classAlerts || next.classAlertLeadMinutes != prev.classAlertLeadMinutes ||
-            next.examAlerts != prev.examAlerts || next.feeReminders != prev.feeReminders
-        ) Work.planAlerts(app, _state.value.snapshot, next, _state.value.overrides, _state.value.campusInfo)
+            next.examAlerts != prev.examAlerts
+        ) Work.planAlerts(app, _state.value.snapshot, next, _state.value.overrides, null)
     }
 
     // ---------- reminders & assignments ----------
@@ -285,9 +286,19 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         _state.update { it.copy(overrides = next) }
         viewModelScope.launch {
             repo.saveOverrides(next)
-            Work.planAlerts(app, _state.value.snapshot, repo.settings, next, _state.value.campusInfo)
+            Work.planAlerts(app, _state.value.snapshot, repo.settings, next, null)
             OrbitWidget.update(app, _state.value.snapshot, next)
         }
+    }
+
+    // ---------- your study plan ----------
+
+    fun upsertStudy(i: com.shreenipane.orbit.core.model.StudyItem) = editStudy { list -> list.filterNot { it.id == i.id } + i }
+    fun removeStudy(i: com.shreenipane.orbit.core.model.StudyItem) = editStudy { list -> list.filterNot { it.id == i.id } }
+    private fun editStudy(edit: (List<com.shreenipane.orbit.core.model.StudyItem>) -> List<com.shreenipane.orbit.core.model.StudyItem>) {
+        val next = edit(_state.value.studyPlan).sortedWith(compareBy({ it.date }, { it.id }))
+        _state.update { it.copy(studyPlan = next) }
+        viewModelScope.launch { repo.saveStudyPlan(next) }
     }
 
     // ---------- FFCS planner ----------
@@ -343,7 +354,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                 val b = repo.restore(text)
                 _state.update {
                     it.copy(reminders = repo.reminders(), friends = repo.friends(), overrides = repo.overrides(),
-                        planner = repo.planner(), settings = repo.settings,
+                        planner = repo.planner(), studyPlan = repo.studyPlan(), settings = repo.settings,
                         message = "Restored ${b.reminders.size} reminders, ${b.friends.size} friends, ${b.planner.size} planned courses.")
                 }
                 repo.reminders().forEach { Work.scheduleReminder(app, it) }

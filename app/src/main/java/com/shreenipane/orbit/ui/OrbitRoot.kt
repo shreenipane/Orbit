@@ -5,6 +5,14 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -125,27 +133,7 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
         bottomBar = {
             Column {
                 HorizontalDivider(thickness = 2.dp, color = com.shreenipane.orbit.ui.theme.Pastel.Line)
-                val navLabelSize = with(androidx.compose.ui.platform.LocalDensity.current) { 11.dp.toSp() }
-                NavigationBar(containerColor = com.shreenipane.orbit.ui.theme.Pastel.CardTeal, tonalElevation = 0.dp) {
-                    Tab.entries.forEachIndexed { i, t ->
-                        NavigationBarItem(
-                            selected = tab == i,
-                            onClick = { if (tab == i && t == Tab.More) more = null; tab = i },
-                            icon = { Icon(t.icon, contentDescription = null) },
-                            // Five tabs share ~80dp each. Sized in dp, not sp, so a large system font
-                            // size can't push "Attendance" past its slot (it got cut off).
-                            label = { Text(t.label, maxLines = 1, softWrap = false,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = navLabelSize, letterSpacing = 0.sp)) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
-                                selectedTextColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
-                                unselectedIconColor = com.shreenipane.orbit.ui.theme.Pastel.InkMuted,
-                                unselectedTextColor = com.shreenipane.orbit.ui.theme.Pastel.InkMuted,
-                                indicatorColor = com.shreenipane.orbit.ui.theme.Pastel.Yellow,
-                            ),
-                        )
-                    }
-                }
+                OrbitTabBar(tab) { i -> if (tab == i && Tab.entries[i] == Tab.More) more = null; tab = i }
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -192,5 +180,48 @@ fun LockScreen(onUnlock: () -> Unit) {
         Text("Orbit is locked", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
         com.shreenipane.orbit.ui.components.BrutalButton("Unlock", onUnlock)
+    }
+}
+
+/**
+ * Bottom tabs. Hand-built rather than Material's NavigationBar, which keeps
+ * padding around each label and cut "Attendance" off on narrow phones and
+ * with large system fonts. Each tab here gets its full fifth of the width,
+ * and labels are sized in dp so the system font size can't overflow them.
+ */
+@Composable
+private fun OrbitTabBar(selected: Int, onSelect: (Int) -> Unit) {
+    val P = com.shreenipane.orbit.ui.theme.Pastel
+    val labelSize = with(androidx.compose.ui.platform.LocalDensity.current) { 11.dp.toSp() }
+    Row(
+        Modifier.fillMaxWidth().background(P.CardTeal).navigationBarsPadding().height(68.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Tab.entries.forEachIndexed { i, t ->
+            val on = i == selected
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { onSelect(i) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Box(
+                    Modifier.size(width = 56.dp, height = 30.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
+                        .background(if (on) P.Yellow else androidx.compose.ui.graphics.Color.Transparent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(t.icon, contentDescription = t.label, tint = if (on) P.Ink else P.InkMuted, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    t.label, maxLines = 1, softWrap = false,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = labelSize, letterSpacing = 0.sp,
+                        fontWeight = if (on) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium,
+                    ),
+                    color = if (on) P.Ink else P.InkMuted,
+                )
+            }
+        }
     }
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window colour before Compose draws, in dark mode: matches DarkPalette.page. -->
+    <color name="page">#0E1116</color>
+</resources>

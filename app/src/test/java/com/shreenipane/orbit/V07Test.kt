@@ -248,4 +248,16 @@ class V07Test {
         assertEquals("C", com.shreenipane.orbit.core.calc.SemesterWindow.semesterFor("Apr-2026", sems)?.id)
         assertEquals(null, com.shreenipane.orbit.core.calc.SemesterWindow.semesterFor("Nov-2019", sems))
     }
+
+    @Test fun everyMonthOfTheSemesterIsAskedFor() {
+        val keys = com.shreenipane.orbit.core.calc.SemesterWindow.monthKeys("Fall Semester 2026-27")
+        assertTrue(keys.containsAll(listOf("01-JUL-2026", "01-OCT-2026", "01-NOV-2026", "01-DEC-2026")))
+        assertEquals(listOf("01-DEC-2025", "01-JAN-2026", "01-FEB-2026", "01-MAR-2026", "01-APR-2026", "01-MAY-2026", "01-JUN-2026"),
+            com.shreenipane.orbit.core.calc.SemesterWindow.monthKeys("Winter Semester 2025-26"))
+        // A page for another month than requested is ignored instead of being mislabelled.
+        val P = com.shreenipane.orbit.core.parse.CalendarParsers
+        val aug = fixture("calendar_month.html")
+        assertTrue(P.month(aug, "01-AUG-2026").isNotEmpty())
+        assertTrue(P.month(aug, "01-NOV-2026").isEmpty())
+    }
 }

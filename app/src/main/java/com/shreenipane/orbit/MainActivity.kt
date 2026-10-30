@@ -3,6 +3,7 @@ package com.shreenipane.orbit
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
@@ -47,7 +48,15 @@ class MainActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
             OrbitTheme(dark) {
-                if (locked) LockScreen(onUnlock = ::promptUnlock) else OrbitRoot(vm, canUseLock = canUseLock(this))
+                // Every screen sits on the palette's page colour with its ink as the default text colour,
+                // so nothing (like the sign-in screen did) shows the light window background in dark mode.
+                androidx.compose.material3.Surface(
+                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    color = com.shreenipane.orbit.ui.theme.Pastel.Page,
+                    contentColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
+                ) {
+                    if (locked) LockScreen(onUnlock = ::promptUnlock) else OrbitRoot(vm, canUseLock = canUseLock(this))
+                }
             }
         }
         if (locked) promptUnlock()

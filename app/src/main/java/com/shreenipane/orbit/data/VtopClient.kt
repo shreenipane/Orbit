@@ -89,22 +89,33 @@ class VtopClient(
      * The semester's academic calendar for one class group (default: General
      * (Flexible)), every month fetched and flattened.
      */
-    suspend fun academicCalendar(semId: String, preferredGroup: String?): AcademicCalendar? {
+    suspend fun academicCalendar(semId: String, preferredGroup: String?, semesterName: String? = null): AcademicCalendar? {
         val groupsHtml = postData("/vtop/getDateForSemesterPreview", "paramReturnId" to "getDateForSemesterPreview", "semSubId" to semId)
         val group = CalendarParsers.pickClassGroup(CalendarParsers.classGroups(groupsHtml), preferredGroup) ?: return null
         val monthsHtml = postData(
             "/vtop/getListForSemester",
             "paramReturnId" to "getListForSemester", "semSubId" to semId, "classGroupId" to group.id,
         )
-        val months = CalendarParsers.months(monthsHtml).ifEmpty { CalendarParsers.months(groupsHtml) }
+        val listed = CalendarParsers.months(monthsHtml).ifEmpty { CalendarParsers.months(groupsHtml) }
+        // VTOP's list can stop at the current month; ask for every month the semester spans as well.
+        val months = (listed + semesterName?.let { com.shreenipane.orbit.core.calc.SemesterWindow.monthKeys(it) }.orEmpty()).distinct()
         val days = coroutineScope {
             months.map { m ->
                 async {
-                    CalendarParsers.month(
-                        postData("/vtop/processViewCalendar", "calDate" to m, "semSubId" to semId, "classGroupId" to group.id),
-                        m,
-                        group.name,
-                    )
+                    try {
+                        CalendarParsers.month(
+                            postData("/vtop/processViewCalendar", "calDate" to m, "semSubId" to semId, "classGroupId" to group.id)
+                                .also { if (m.contains("-NOV-")) onRaw("calendar_nov", it) },
+                            m,
+                            group.name,
+                        )
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: SessionExpiredException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList() // one bad month (outside the semester, say) shouldn't sink the rest
+                    }
                 }
             }.awaitAll().flatten()
         }

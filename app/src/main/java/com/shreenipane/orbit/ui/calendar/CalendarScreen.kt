@@ -105,9 +105,12 @@ fun CalendarScreen(
         else Overrides.day(Schedule.forDay(snap.timetable.sessions, cd?.dayOrder ?: selected.dayOfWeek.value), selected, overrides)
 
         section(header = selected.format(DAY)) {
-            ListRow(describe(cd, selected), dayNote(cd, selected))
+            // Only say what the day is when VTOP's calendar actually says something.
+            val known = cd != null && cd.kind != DayKind.UNKNOWN
+            if (known) ListRow(describe(cd, selected), dayNote(cd, selected))
+            if (classes.isEmpty() && !known) ListRow("No classes", null)
             if (classes.isNotEmpty()) {
-                com.shreenipane.orbit.ui.components.RowDivider()
+                if (known) com.shreenipane.orbit.ui.components.RowDivider()
                 Rows(classes, inset = 82.dp) { dc ->
                     Box(Modifier.clickable { acting = dc.session }) {
                         ClassRow(dc.session, isNow = false, struck = dc.cancelled,

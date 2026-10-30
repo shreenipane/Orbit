@@ -1,6 +1,6 @@
 # Orbit: a VTOP companion for Android
 
-A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VTOP and cached on the phone:
+A native Android (Kotlin + Jetpack Compose) app for VIT Vellore students, pulled from VTOP and cached on the phone:
 
 * **Today:** the class happening now and the next one, the next exam, deadlines due soon, and courses below 75%
 * **Timetable** by day, with back-to-back lab slots merged into one block
@@ -16,12 +16,14 @@ A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VT
 * **Friends:** scan each other's QR code (or paste a share code) to swap timetables, then see when you're all free. No server is involved, so each of you scans once; after you scan a friend, Orbit shows your QR for them to scan back.
 * **Class changes:** mark a class cancelled or add an extra class; classes-left counts, alerts, the widget and the calendar export follow them
 * **Marks extras:** the FAT score you need for each target total
-* **Exams extras:** a revision plan across the days before your papers, and past-paper links
 * **Results:** published grades per semester; tap a course for its grade ranges, class mean and class size
 * **CGPA:** a calculator (target CGPA, what-if grades) and a grade history tab showing which categories (discipline core, electives, open electives, NGCR…) you still need, with every past course and its grade ranges
 * **Calendar:** VTOP's academic calendar as a month grid; tap a day to see whether it's a class day, holiday or exam and which classes run
 * **FFCS planner:** type slot combos (A1+TA1, L31+L32) to check clashes and credits before registration
-* **Campus:** VTOP announcements, your proctor, HOD and Dean, faculty search (cabin, e-mail, open hours), fees due and receipts, and the hostel biometric log
+* **Biometric log:** your punches at the academic blocks, day by day
+* **Hostel leave:** opens VTOP's own leave form inside the app, already signed in
+* **Past papers:** CodeChef-VIT's question-paper archive for each of your courses, read inside the app, saved to your phone or shared
+* **Study plan:** plan what to revise on which day and tick it off
 * **Home-screen widget** with the next class; **calendar export** (.ics); **backup and restore** of everything kept only on the phone; **weekly attendance report** on Sunday evening; **fee reminders**; light, dark or system theme
 * **Alerts:** before each class, the evening before an exam and an hour before it, and for new marks or absences after a background sync
 * **App lock** with fingerprint, face or screen lock, plus a display name of your choice

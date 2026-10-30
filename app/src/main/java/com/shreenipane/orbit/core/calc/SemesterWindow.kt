@@ -59,4 +59,21 @@ object SemesterWindow {
         val hits = semesters.filter { s -> of(s.name)?.let { date in it } == true }
         return hits.firstOrNull { !SIDE.containsMatchIn(it.name) } ?: hits.firstOrNull()
     }
+
+    /**
+     * Every month key ("01-NOV-2026") the semester can span. VTOP's own month
+     * list can stop early (it skipped November once, so later classes went
+     * uncounted); these fill the gaps.
+     */
+    fun monthKeys(name: String): List<String> {
+        val w = of(name) ?: return emptyList()
+        val out = mutableListOf<String>()
+        var m = java.time.YearMonth.from(w.start)
+        val last = java.time.YearMonth.from(w.endInclusive)
+        while (!m.isAfter(last)) {
+            out += "01-${MONTHS[m.monthValue - 1]}-${m.year}"
+            m = m.plusMonths(1)
+        }
+        return out
+    }
 }

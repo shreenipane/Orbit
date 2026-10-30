@@ -188,7 +188,7 @@ class PlanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     override suspend fun doWork(): Result {
         val repo = (applicationContext as OrbitApp).repository
         val snap = repo.cached()
-        Work.planAlerts(applicationContext, snap, repo.settings, repo.overrides(), repo.campusInfo())
+        Work.planAlerts(applicationContext, snap, repo.settings, repo.overrides(), null)
         com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, snap, repo.overrides())
         return Result.success()
     }
@@ -211,16 +211,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             if (notes.size > 5) {
                 Notifier.post(applicationContext, Notifier.SYNC, 2005, "${notes.size - 5} more updates", "Open Orbit to see everything that changed.")
             }
-            // Announcements and fees ride along; new announcements get a notification.
-            val oldCampus = repo.campusInfo()
-            val campus = runCatching { repo.refreshCampus() }.getOrNull()
-            if (campus != null && oldCampus != null) {
-                val fresh2 = campus.announcements.filterNot { it in oldCampus.announcements }
-                fresh2.take(3).forEachIndexed { i, a ->
-                    Notifier.post(applicationContext, Notifier.SYNC, 2100 + i, "New on VTOP · ${a.category}", a.text)
-                }
-            }
-            Work.planAlerts(applicationContext, fresh, repo.settings, repo.overrides(), campus ?: oldCampus)
+            Work.planAlerts(applicationContext, fresh, repo.settings, repo.overrides(), null)
             com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, fresh, repo.overrides())
             Result.success()
         } catch (e: SessionExpiredException) {

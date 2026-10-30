@@ -204,20 +204,11 @@ fun LoginScreen(
         Text("Orbit", style = MaterialTheme.typography.displayMedium.copy(fontSize = 56.sp))
         Spacer(Modifier.height(6.dp))
         Text(
-            "Timetable, attendance, marks, exams and deadlines from VTOP, on your phone.",
+            "Your VTOP, made simple. For VIT Vellore.",
             style = MaterialTheme.typography.bodyLarge,
             color = Pastel.InkMuted,
         )
-        Spacer(Modifier.height(32.dp))
-        Text("Campus", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        val campuses = Campus.entries
-        Segmented(
-            options = campuses.map { if (it == Campus.AP) "AP" else it.label },
-            selected = campuses.indexOf(campus),
-            onSelect = { onCampus(campuses[it]) },
-        )
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(36.dp))
 
         if (saved != null && canFingerprint) {
             BrutalButton(

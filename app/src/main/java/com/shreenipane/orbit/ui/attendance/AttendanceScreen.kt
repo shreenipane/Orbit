@@ -193,7 +193,7 @@ private fun PlannerSheet(
                             Text("By the end", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
                             Text("${a.attended + attend}/${a.total + dates.size} classes", fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.titleMedium)
-                            if (cal != null) {
+                            if (cal != null && dates.isNotEmpty()) {
                                 Text("Attending $attend of ${dates.size}", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
                             }
                         }

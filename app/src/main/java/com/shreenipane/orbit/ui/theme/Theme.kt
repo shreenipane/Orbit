@@ -41,12 +41,17 @@ val LightPalette = PastelPalette(
     good = Color(0xFF1E8A3A), warn = Color(0xFFB07800), bad = Color(0xFFCC3312),
 )
 
+/**
+ * Dark: a neutral near-black page with soft grey outlines instead of bright
+ * ones, and the pastels as deep but clearly hued tints that keep light text
+ * readable. Status colours are bright so rings and tags stand out.
+ */
 val DarkPalette = PastelPalette(
-    page = Color(0xFF0F1A1B), card = Color(0xFF182627), cardTeal = Color(0xFF1F3A3C), cardLight = Color(0xFF203234),
-    yellow = Color(0xFF5E5420), green = Color(0xFF3B5A20), salmon = Color(0xFF6A3426), sky = Color(0xFF1D5458),
-    blue = Color(0xFF1E4B63), mint = Color(0xFF1F5440), lavender = Color(0xFF41365F), periwinkle = Color(0xFF2B3F66),
-    ink = Color(0xFFEFF7F7), inkMuted = Color(0xB3EFF7F7), hairline = Color(0x33EFF7F7), line = Color(0xFFCFE6E7),
-    good = Color(0xFF7EE29A), warn = Color(0xFFF2C14E), bad = Color(0xFFFF8A70),
+    page = Color(0xFF0E1116), card = Color(0xFF171B22), cardTeal = Color(0xFF13171D), cardLight = Color(0xFF1F242C),
+    yellow = Color(0xFF4A4012), green = Color(0xFF1E4A2C), salmon = Color(0xFF5C2A22), sky = Color(0xFF16404B),
+    blue = Color(0xFF1A3A5C), mint = Color(0xFF15463A), lavender = Color(0xFF362C58), periwinkle = Color(0xFF243A66),
+    ink = Color(0xFFE8EDF2), inkMuted = Color(0xFF9AA4AF), hairline = Color(0xFF2A3038), line = Color(0xFF39414B),
+    good = Color(0xFF4CC46A), warn = Color(0xFFE3A72F), bad = Color(0xFFFF6B5B),
 )
 
 /**

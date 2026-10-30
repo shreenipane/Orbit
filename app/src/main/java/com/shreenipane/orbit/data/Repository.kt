@@ -137,6 +137,11 @@ class Repository(private val context: Context) {
     suspend fun planner(): List<PlannedCourse> = read("planner.json", ListSerializer(PlannedCourse.serializer())) ?: emptyList()
     suspend fun savePlanner(list: List<PlannedCourse>) = write("planner.json", ListSerializer(PlannedCourse.serializer()), list)
 
+    suspend fun studyPlan(): List<com.shreenipane.orbit.core.model.StudyItem> =
+        read("study_plan.json", ListSerializer(com.shreenipane.orbit.core.model.StudyItem.serializer())) ?: emptyList()
+    suspend fun saveStudyPlan(list: List<com.shreenipane.orbit.core.model.StudyItem>) =
+        write("study_plan.json", ListSerializer(com.shreenipane.orbit.core.model.StudyItem.serializer()), list)
+
     suspend fun campusInfo(): CampusInfo? = read("campus.json", CampusInfo.serializer())
     private suspend fun saveCampus(c: CampusInfo) = write("campus.json", CampusInfo.serializer(), c)
 
@@ -153,13 +158,14 @@ class Repository(private val context: Context) {
         val friends: List<Friend> = emptyList(),
         val overrides: List<ClassOverride> = emptyList(),
         val planner: List<PlannedCourse> = emptyList(),
+        val studyPlan: List<com.shreenipane.orbit.core.model.StudyItem> = emptyList(),
         val alias: String = "",
     )
 
     /** Everything that lives only on this phone, as JSON. VTOP data isn't included; it re-syncs. */
     suspend fun backupJson(): String = json.encodeToString(
         Backup.serializer(),
-        Backup(reminders = reminders(), friends = friends(), overrides = overrides(), planner = planner(), alias = settings.alias),
+        Backup(reminders = reminders(), friends = friends(), overrides = overrides(), planner = planner(), studyPlan = studyPlan(), alias = settings.alias),
     )
 
     /** Restores a backup, merging with what's already here (backup wins on clashes). */
@@ -169,6 +175,7 @@ class Repository(private val context: Context) {
         saveFriends(friends().filterNot { f -> b.friends.any { it.name == f.name } } + b.friends)
         saveOverrides(overrides().filterNot { o -> b.overrides.any { it.id == o.id } } + b.overrides)
         savePlanner(planner().filterNot { p -> b.planner.any { it.id == p.id } } + b.planner)
+        saveStudyPlan(studyPlan().filterNot { p -> b.studyPlan.any { it.id == p.id } } + b.studyPlan)
         if (b.alias.isNotBlank() && settings.alias.isBlank()) settings = settings.copy(alias = b.alias)
         return b
     }
@@ -254,7 +261,14 @@ class Repository(private val context: Context) {
         val session = client.attach()
         live = client
         val semesters = client.semesters()
-        val sem: Semester? = semesters.firstOrNull { it.id == semesterId } ?: pickCurrent(semesters)
+        // After registration VTOP lists a new semester; move to it even if an older one was picked in Settings.
+        val newest = pickCurrent(semesters)
+        val known = cached()?.semesters.orEmpty()
+        val chosen = if (newest != null && known.isNotEmpty() && known.none { it.id == newest.id }) {
+            pinnedSemesterId = null
+            null
+        } else semesterId
+        val sem: Semester? = semesters.firstOrNull { it.id == chosen } ?: newest
         val warnings = java.util.Collections.synchronizedList(mutableListOf<String>())
         suspend fun <T> optional(label: String, fallback: T, block: suspend () -> T): T = try {
             block()
@@ -278,7 +292,7 @@ class Repository(private val context: Context) {
             val exams = async { optional("Exam schedule", emptyList()) { client.examSchedule(sem.id) } }
             val calendar = async {
                 optional<AcademicCalendar?>("Academic calendar", null) {
-                    val raw = client.academicCalendar(sem.id, classGroupId)
+                    val raw = client.academicCalendar(sem.id, classGroupId, sem.name)
                     val fitted = com.shreenipane.orbit.core.calc.SemesterWindow.fit(raw, sem.name)
                     if (raw != null && fitted == null) warnings += "Academic calendar: VTOP sent another semester's calendar, so classes-left counts are off"
                     fitted
@@ -312,17 +326,50 @@ class Repository(private val context: Context) {
     suspend fun keepAlive(): Boolean = newClient().keepAlive()
 
     /** One text file with the last raw VTOP pages, for sharing when something parses wrong. */
-    fun debugReport(): File {
+    suspend fun debugReport(): File {
         val dir = File(context.filesDir, "debug").apply { mkdirs() }
         val out = File(context.cacheDir, "orbit-debug.txt")
-        out.writeText(buildString {
+        val snap = cached()
+        withContext(Dispatchers.IO) { out.writeText(buildString {
             append("Orbit debug report · campus ${campus.id}\n")
+            if (snap != null) append(classCountSummary(snap))
             dir.listFiles().orEmpty().sortedBy { it.name }.forEach { f ->
                 append("\n===== ${f.name} (${f.length()} bytes) =====\n")
                 append(f.readText())
             }
-        })
+        }) }
         return out
+    }
+
+    /**
+     * What the classes-left counts are built from, in plain text: the
+     * timetable's sessions, the calendar's remaining class days, and each
+     * attendance course's match. No personal data beyond course details.
+     */
+    private fun classCountSummary(snap: Snapshot): String = buildString {
+        val today = java.time.LocalDate.now()
+        val now = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+        val cal = snap.calendar
+        append("\n===== class counts =====\n")
+        append("semester: ${snap.semester?.name}\n")
+        append("calendar: ${cal?.classGroupName ?: "none"} · ${cal?.days?.size ?: 0} days")
+        append(" · last class day ${cal?.let { com.shreenipane.orbit.core.calc.ExamPlanner.semesterEnd(it)?.minusDays(1) }}\n")
+        append("class days from today:\n")
+        cal?.days?.filter { it.date >= today.toString() }?.take(40)?.forEach { d ->
+            append("  ${d.date} ${d.kind}${d.dayOrder?.let { " order=$it" } ?: ""}${d.exam?.let { " exam=$it" } ?: ""} | ${d.label.take(120)}\n")
+        }
+        append("sessions:\n")
+        snap.timetable.sessions.sortedWith(compareBy({ it.day }, { it.start })).forEach { x ->
+            append("  day=${x.day} ${x.start}-${x.end} ${x.slot} ${x.courseCode} ${x.typeCode} lab=${x.isLab}\n")
+        }
+        append("slot grid: ${snap.timetable.slotGrid.size} slots\n")
+        val left = com.shreenipane.orbit.core.calc.ExamPlanner.remainingAll(cal, snap.timetable.sessions, today, now)
+        append("attendance:\n")
+        snap.attendance.forEach { a ->
+            val lab = com.shreenipane.orbit.core.calc.ExamPlanner.isLab(a)
+            val n = snap.timetable.sessions.count { it.courseCode == a.courseCode && it.isLab == lab }
+            append("  ${a.courseCode} '${a.courseType}' slot=${a.slot} lab=$lab sessions=$n left=${com.shreenipane.orbit.core.calc.ExamPlanner.remainingFrom(left, a)}\n")
+        }
     }
 
     /** VTOP lists the newest semester first, but also lists side semesters (transport, CDC, freshers). */

@@ -122,6 +122,15 @@ object CalendarParsers {
     }
 
     /** One month grid → dated days. [calDate] is the key it was requested with, e.g. "01-AUG-2026". */
+    private val FULL_MONTHS = listOf("JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST",
+        "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER")
+
+    /** The "AUGUST 2026" heading of a month page, as (year, month). */
+    internal fun monthHeading(text: String): Pair<Int, Int>? {
+        val m = Regex("\\b(${FULL_MONTHS.joinToString("|")})\\s+(\\d{4})\\b", RegexOption.IGNORE_CASE).find(text) ?: return null
+        return m.groupValues[2].toInt() to FULL_MONTHS.indexOf(m.groupValues[1].uppercase()) + 1
+    }
+
     fun month(html: String, calDate: String, group: String? = null): List<CalendarDay> {
         val parts = calDate.split("-")
         if (parts.size != 3) return emptyList()
@@ -130,6 +139,8 @@ object CalendarParsers {
         if (month == 0) return emptyList()
 
         val doc = Jsoup.parse(html)
+        // A page for a different month than asked (VTOP falls back to its default month) would mislabel every day.
+        monthHeading(doc.text())?.let { (y, mo) -> if (y != year || mo != month) return emptyList() }
         val table = doc.selectFirst("table.calendar-table") ?: doc.selectFirst("table") ?: return emptyList()
         val out = mutableListOf<CalendarDay>()
         for (cell in table.select("td")) {

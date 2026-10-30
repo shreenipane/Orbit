@@ -177,10 +177,6 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             Toggle("Weekly report", "Sunday evening: classes attended and how each subject moved", s.weeklyReport) { v ->
                 vm.updateSettings { it.copy(weeklyReport = v) }
             }
-            RowDivider()
-            Toggle("Fee reminders", "Two days before a fee is due, and on the day", s.feeReminders) { v ->
-                vm.updateSettings { it.copy(feeReminders = v) }
-            }
         }
 
         section(
@@ -215,18 +211,20 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             header = "Help",
             footer = "Send this if a screen is empty or wrong.",
         ) {
-            ListRow("Send debug report", "Share what VTOP returned, so parsing can be fixed", chevron = true, onClick = {
-                val file = vm.debugReport()
-                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
-                ctx.startActivity(
-                    android.content.Intent.createChooser(
-                        android.content.Intent(android.content.Intent.ACTION_SEND)
-                            .setType("text/plain")
-                            .putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                        "Send debug report",
-                    ),
-                )
+            ListRow("Send debug report", "Timetable, calendar and VTOP pages, for fixing bugs", chevron = true, onClick = {
+                scope.launch {
+                    val file = vm.debugReport()
+                    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+                    ctx.startActivity(
+                        android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_SEND)
+                                .setType("text/plain")
+                                .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                            "Send debug report",
+                        ),
+                    )
+                }
             })
         }
 
