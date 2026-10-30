@@ -206,7 +206,7 @@ class V07Test {
             <tr><td></td><td>Total</td><td>160</td><td>90</td></tr></table>"""
         val needs = com.shreenipane.orbit.core.parse.VtopParsers.creditNeeds(org.jsoup.Jsoup.parse(html))
         assertEquals(listOf("Discipline Elective", "Open Elective"), needs.map { it.name })
-        assertEquals(9.0, needs[1].required)
+        assertEquals(9.0, needs[1].required, 1e-9)
         // The recorded VIT-AP page has no such table.
         assertTrue(com.shreenipane.orbit.core.parse.VtopParsers.gradeHistory(
             fixture("grade_history.html")).requirements.isEmpty())
@@ -222,10 +222,10 @@ class V07Test {
         val p = Curriculum.progress(h, mapOf("NGCR" to 5.0))
         val ngcr = p.first { it.key == "NGCR" }
         assertTrue(ngcr.byCourses)
-        assertEquals(3.0, ngcr.earned)       // P, "-" and blank count; F doesn't
+        assertEquals(3.0, ngcr.earned, 1e-9)       // P, "-" and blank count; F doesn't
         assertEquals(2.0, ngcr.left)
         // And none of them touch the CGPA maths.
-        assertEquals(4.0, com.shreenipane.orbit.core.calc.GradeCalc.standing(h).gradedCredits)
+        assertEquals(4.0, com.shreenipane.orbit.core.calc.GradeCalc.standing(h).gradedCredits, 1e-9)
     }
 
     @Test fun gradeRangesFromDetailPage() {
