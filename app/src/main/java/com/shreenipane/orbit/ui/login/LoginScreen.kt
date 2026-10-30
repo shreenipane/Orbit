@@ -4,6 +4,7 @@ package com.shreenipane.orbit.ui.login
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -11,56 +12,86 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import com.shreenipane.orbit.data.Campus
 import com.shreenipane.orbit.data.CredentialVault
+import com.shreenipane.orbit.data.VtopLogin
 import com.shreenipane.orbit.ui.components.BrutalButton
 import com.shreenipane.orbit.ui.components.Segmented
+import com.shreenipane.orbit.ui.components.brutal
+import com.shreenipane.orbit.ui.theme.Bad
 import com.shreenipane.orbit.ui.theme.Pastel
-import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+private enum class Mode { Home, Native, Web }
+
 /**
- * Sign-in happens on VTOP's own page in a WebView, so the captcha and OTP
- * keep working. With a saved login, a fingerprint unlocks the locker and
- * Orbit fills in your registration number and password; you only type the
- * captcha. After a manual sign-in, Orbit offers to save the login.
+ * Sign-in without the VTOP website: Orbit runs VTOP's own login steps in the
+ * background and shows only the captcha (and the OTP, when VTOP asks). With a
+ * saved login, the fingerprint prompt opens straight away and fills in the
+ * registration number and password. The website is a fallback for days when
+ * VTOP switches to Google reCAPTCHA.
  */
 @Composable
 fun LoginScreen(
@@ -71,38 +102,69 @@ fun LoginScreen(
     busy: Boolean,
     vault: CredentialVault,
     onLockerChanged: () -> Unit,
+    newLogin: () -> VtopLogin,
 ) {
     val activity = LocalContext.current as FragmentActivity
-    var web by remember { mutableStateOf<CredentialVault.Credentials?>(null) }
-    var showWeb by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(Mode.Home) }
+    var creds by remember { mutableStateOf<CredentialVault.Credentials?>(null) }
     var offerSave by remember { mutableStateOf<CredentialVault.Credentials?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val canFingerprint = remember { Biometrics.available(activity) }
+    val saved = vault.savedRegNo
+
+    fun unlockWithFingerprint() {
+        val cipher = vault.decryptCipher()
+        if (cipher == null) {
+            error = "Your saved login was reset because the phone's fingerprints changed. Sign in once more to save it again."
+            onLockerChanged()
+            return
+        }
+        Biometrics.unlock(
+            activity, cipher, "Sign in to VTOP", saved ?: "",
+            onSuccess = { c ->
+                val opened = vault.open(c)
+                if (opened == null) error = "Couldn't open the locker. Sign in with your password."
+                else { creds = opened; mode = Mode.Native }
+            },
+            onError = { error = it },
+        )
+    }
+
+    // With a saved login, go straight to the fingerprint prompt.
+    LaunchedEffect(Unit) {
+        if (saved != null && canFingerprint && !busy) unlockWithFingerprint()
+    }
+
+    fun finished(typed: CredentialVault.Credentials?) {
+        val fromLocker = creds != null && typed?.password == creds?.password
+        if (canFingerprint && typed != null && typed.password.isNotBlank() && !fromLocker) offerSave = typed else onSignedIn()
+        mode = Mode.Home
+    }
 
     if (busy && offerSave == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(strokeWidth = 3.dp)
+                CircularProgressIndicator(strokeWidth = 3.dp, color = Pastel.Ink)
                 Spacer(Modifier.height(16.dp))
-                Text("Syncing with VTOP", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Syncing with VTOP", style = MaterialTheme.typography.headlineSmall)
             }
         }
         return
     }
 
-    offerSave?.let { creds ->
+    offerSave?.let { typed ->
         AlertDialog(
             onDismissRequest = { offerSave = null; onSignedIn() },
             icon = { Icon(Icons.Rounded.Fingerprint, null) },
             title = { Text("Save login to the locker?") },
             text = {
-                Text("Next time, sign in with your fingerprint. Your password is encrypted on this phone with a key only your fingerprint can unlock, and stays until you sign out.")
+                Text("Next time: fingerprint, then just the captcha. Your password is encrypted on this phone with a key only your fingerprint can unlock, and stays until you sign out.")
             },
             confirmButton = {
                 TextButton(onClick = {
                     Biometrics.unlock(
                         activity, vault.encryptCipher(), "Save VTOP login", "Confirm with your fingerprint",
-                        onSuccess = { c -> vault.save(c, creds); onLockerChanged(); offerSave = null; onSignedIn() },
+                        onSuccess = { c -> vault.save(c, typed); onLockerChanged(); offerSave = null; onSignedIn() },
                         onError = { msg -> error = msg; offerSave = null; onSignedIn() },
                     )
                 }) { Text("Save") }
@@ -111,24 +173,32 @@ fun LoginScreen(
         )
     }
 
-    if (showWeb) {
-        VtopWebLogin(
-            campus = campus,
-            fill = web,
-            onDone = { typed ->
-                showWeb = false
-                val shouldOffer = canFingerprint && typed != null && typed.password.isNotBlank() &&
-                    (vault.savedRegNo == null || vault.savedRegNo != typed.regNo.uppercase() || web == null)
-                if (shouldOffer && web == null) offerSave = typed else onSignedIn()
-                web = null
-            },
-            onClose = { showWeb = false; web = null },
-        )
-        return
+    when (mode) {
+        Mode.Native -> {
+            NativeLogin(
+                campus = campus,
+                prefill = creds,
+                newLogin = newLogin,
+                onSuccess = { typed -> finished(typed) },
+                onUseWebsite = { mode = Mode.Web },
+                onClose = { mode = Mode.Home; creds = null },
+            )
+            return
+        }
+        Mode.Web -> {
+            VtopWebLogin(
+                campus = campus,
+                fill = creds,
+                onDone = { typed -> finished(typed) },
+                onClose = { mode = Mode.Home },
+            )
+            return
+        }
+        Mode.Home -> Unit
     }
 
     Column(
-        Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp, vertical = 16.dp),
+        Modifier.fillMaxSize().safeDrawingPadding().padding(start = 24.dp, end = 28.dp, top = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Text("Orbit", style = MaterialTheme.typography.displayMedium.copy(fontSize = 56.sp))
@@ -136,9 +206,9 @@ fun LoginScreen(
         Text(
             "Timetable, attendance, marks, exams and deadlines from VTOP, on your phone.",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Pastel.InkMuted,
         )
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(32.dp))
         Text("Campus", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         val campuses = Campus.entries
@@ -149,53 +219,184 @@ fun LoginScreen(
         )
         Spacer(Modifier.height(28.dp))
 
-        val saved = vault.savedRegNo
         if (saved != null && canFingerprint) {
             BrutalButton(
                 text = "Sign in with fingerprint",
+                onClick = { unlockWithFingerprint() },
+                modifier = Modifier.fillMaxWidth(),
                 fill = Pastel.Green,
                 leading = { Icon(Icons.Rounded.Fingerprint, null, tint = Pastel.Ink) },
-                onClick = {
-                    val cipher = vault.decryptCipher()
-                    if (cipher == null) {
-                        error = "Your saved login was reset because the phone's fingerprints changed. Sign in once more to save it again."
-                        onLockerChanged()
-                    } else {
-                        Biometrics.unlock(
-                            activity, cipher, "Sign in to VTOP", saved,
-                            onSuccess = { c ->
-                                val creds = vault.open(c)
-                                if (creds == null) error = "Couldn't open the locker. Sign in with your password." else { web = creds; showWeb = true }
-                            },
-                            onError = { error = it },
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
             )
-            Text(
-                "Saved login: $saved",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp, start = 4.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            BrutalButton("Use password instead", { web = null; showWeb = true }, Modifier.fillMaxWidth(), fill = Pastel.Card)
+            Text("Saved login: $saved", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted,
+                modifier = Modifier.padding(top = 10.dp, start = 2.dp))
+            Spacer(Modifier.height(14.dp))
+            BrutalButton("Use password instead", { creds = null; mode = Mode.Native }, Modifier.fillMaxWidth(), fill = Pastel.Card)
         } else {
-            BrutalButton("Sign in with VTOP", { web = null; showWeb = true }, Modifier.fillMaxWidth(), fill = Pastel.Yellow)
+            BrutalButton("Sign in", { creds = null; mode = Mode.Native }, Modifier.fillMaxWidth(), fill = Pastel.Yellow)
         }
         if (onCancel != null) {
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Keep using saved data") }
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text("Keep using saved data", color = Pastel.Ink)
+            }
         }
         error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            Text(it, color = Bad, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
         }
         Spacer(Modifier.height(24.dp))
         Text(
-            "You sign in on VTOP's own page and type the captcha yourself. Orbit never sends your password anywhere except VTOP.",
+            "Your password only ever goes to VTOP. You type VTOP's captcha yourself; Orbit handles everything else.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Pastel.InkMuted,
         )
+    }
+}
+
+@Composable
+private fun NativeLogin(
+    campus: Campus,
+    prefill: CredentialVault.Credentials?,
+    newLogin: () -> VtopLogin,
+    onSuccess: (CredentialVault.Credentials) -> Unit,
+    onUseWebsite: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val login = remember { newLogin() }
+    var reg by remember { mutableStateOf(prefill?.regNo.orEmpty()) }
+    var pass by remember { mutableStateOf(prefill?.password.orEmpty()) }
+    var captcha by remember { mutableStateOf("") }
+    var otp by remember { mutableStateOf("") }
+    var image by remember { mutableStateOf<Bitmap?>(null) }
+    var needOtp by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var reloadKey by remember { mutableIntStateOf(0) }
+    val captchaFocus = remember { FocusRequester() }
+
+    BackHandler(onBack = onClose)
+
+    LaunchedEffect(reloadKey) {
+        working = true
+        image = null
+        captcha = ""
+        try {
+            when (val ch = login.start()) {
+                is VtopLogin.Challenge.Captcha -> image = BitmapFactory.decodeByteArray(ch.image, 0, ch.image.size)
+                VtopLogin.Challenge.NeedsWebsite -> { onUseWebsite(); return@LaunchedEffect }
+            }
+        } catch (e: Exception) {
+            error = e.message ?: "Couldn't reach VTOP."
+        }
+        working = false
+        if (prefill != null) runCatching { captchaFocus.requestFocus() }
+    }
+
+    fun submit() {
+        if (working) return
+        error = null
+        working = true
+        scope.launch {
+            try {
+                val result = if (needOtp) login.verifyOtp(otp) else login.submit(reg, pass, captcha)
+                when (result) {
+                    VtopLogin.Result.Success -> onSuccess(CredentialVault.Credentials(reg.trim().uppercase(), pass))
+                    VtopLogin.Result.WrongCaptcha -> { error = "Captcha didn't match. Here's a new one."; reloadKey++ }
+                    VtopLogin.Result.OtpRequired -> { needOtp = true; error = null }
+                    is VtopLogin.Result.Failed -> { error = result.message; if (!needOtp) reloadKey++ }
+                }
+            } catch (e: Exception) {
+                error = e.message ?: "Couldn't reach VTOP."
+            }
+            working = false
+        }
+    }
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = Pastel.Ink, unfocusedBorderColor = Pastel.Ink,
+        focusedContainerColor = Pastel.Card, unfocusedContainerColor = Pastel.Card,
+        focusedLabelColor = Pastel.Ink, cursorColor = Pastel.Ink,
+    )
+
+    Column(
+        Modifier.fillMaxSize().safeDrawingPadding().imePadding().verticalScroll(rememberScrollState())
+            .padding(start = 24.dp, end = 28.dp, top = 8.dp, bottom = 24.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Sign in", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
+            IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close", tint = Pastel.Ink) }
+        }
+        Text("VTOP · ${campus.label}", style = MaterialTheme.typography.labelLarge, color = Pastel.InkMuted)
+        Spacer(Modifier.height(20.dp))
+
+        if (!needOtp) {
+            OutlinedTextField(
+                reg, { reg = it }, label = { Text("Registration number") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Next),
+                colors = fieldColors, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                pass, { pass = it }, label = { Text("VTOP password") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+                colors = fieldColors, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(18.dp))
+            Text("Captcha", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.weight(1f).height(64.dp).brutal(androidx.compose.ui.graphics.Color.White, radius = 12.dp, shadow = 3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val bmp = image
+                    if (bmp != null) {
+                        Image(
+                            bmp.asImageBitmap(), contentDescription = "Captcha",
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
+                            modifier = Modifier.fillMaxSize().padding(6.dp),
+                        )
+                    } else {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = Pastel.Ink)
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Box(Modifier.size(52.dp).brutal(Pastel.Sky, radius = 12.dp, shadow = 3.dp), contentAlignment = Alignment.Center) {
+                    IconButton(onClick = { reloadKey++ }) { Icon(Icons.Rounded.Refresh, "New captcha", tint = Pastel.Ink) }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                captcha, { captcha = it.trim() }, label = { Text("Type the captcha") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { submit() }),
+                colors = fieldColors, shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().focusRequester(captchaFocus),
+            )
+        } else {
+            Text("VTOP sent an OTP to your registered e-mail.", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                otp, { otp = it.filter(Char::isLetterOrDigit).take(8) }, label = { Text("OTP") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { submit() }),
+                colors = fieldColors, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp)) }
+        if (working) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = Pastel.Ink, trackColor = Pastel.CardTeal)
+        Spacer(Modifier.height(20.dp))
+        BrutalButton(
+            text = if (needOtp) "Verify OTP" else "Sign in",
+            onClick = { submit() },
+            modifier = Modifier.fillMaxWidth(),
+            fill = Pastel.Yellow,
+            enabled = !working && (if (needOtp) otp.isNotBlank() else reg.isNotBlank() && pass.isNotBlank() && captcha.isNotBlank()),
+        )
+        TextButton(onClick = onUseWebsite, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text("Having trouble? Use the VTOP website", color = Pastel.InkMuted)
+        }
     }
 }
 

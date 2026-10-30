@@ -82,6 +82,7 @@ fun OrbitRoot(vm: AppViewModel, canUseLock: Boolean) {
             busy = state.refreshing,
             vault = vm.vault,
             onLockerChanged = vm::lockerChanged,
+            newLogin = vm::newLogin,
         )
         return
     }

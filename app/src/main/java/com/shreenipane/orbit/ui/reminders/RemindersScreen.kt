@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -53,7 +54,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import android.net.Uri
+import com.shreenipane.orbit.core.model.DigitalAssignment
 import com.shreenipane.orbit.core.model.Reminder
+import com.shreenipane.orbit.ui.DaUpload
+import com.shreenipane.orbit.ui.components.brutal
 import com.shreenipane.orbit.core.model.ReminderKind
 import com.shreenipane.orbit.core.model.Snapshot
 import com.shreenipane.orbit.core.calc.ExamTime
@@ -84,7 +89,12 @@ fun RemindersScreen(
     onSave: (Reminder) -> Unit,
     onToggle: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
+    daUpload: DaUpload = DaUpload.Idle,
+    onUpload: (DigitalAssignment, Uri) -> Unit = { _, _ -> },
+    onOtp: (String, String) -> Unit = { _, _ -> },
+    onResetUpload: () -> Unit = {},
 ) {
+    var openDa by remember { mutableStateOf<DigitalAssignment?>(null) }
     var editing by remember { mutableStateOf<Reminder?>(null) }
     var creating by remember { mutableStateOf(false) }
     val now = System.currentTimeMillis()
@@ -101,7 +111,8 @@ fun RemindersScreen(
         OrbitScreen(title = "Deadlines", subtitle = snap.semester?.name, bottomPadding = 96.dp) {
             section(
                 header = "Digital assignments",
-                footer = if (snap.assignments.isEmpty()) "No DAs on VTOP for this semester yet." else
+                footer = snap.warnings.firstOrNull { it.startsWith("Digital assignments") }?.let { "Couldn't load DAs · $it. Pull to refresh on Today; if it keeps happening, send the debug report from Settings." }
+                    ?: if (snap.assignments.isEmpty()) "No DAs on VTOP for this semester yet." else
                     "${daDone.size} submitted · ${daOpen.size} open" + if (daMissed.isNotEmpty()) " · ${daMissed.size} past due" else "",
             ) {
                 if (daOpen.isEmpty()) ListRow(if (snap.assignments.isEmpty()) "Nothing posted" else "All caught up", null)
@@ -109,8 +120,10 @@ fun RemindersScreen(
                     val days = due?.let { ChronoUnit.DAYS.between(today, it) }
                     ListRow(
                         title = "${da.title} · ${da.courseTitle}",
-                        subtitle = listOfNotNull(due?.format(DAY), da.courseCode, da.maxMark.takeIf { it.isNotBlank() }?.let { "$it marks" })
+                        subtitle = listOfNotNull(due?.format(DAY), da.courseCode, da.maxMark.takeIf { it.isNotBlank() }?.let { "$it marks" },
+                            if (da.canUpload) "tap to upload" else null)
                             .joinToString(" · "),
+                        onClick = { onResetUpload(); openDa = da },
                         trailing = {
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
@@ -127,14 +140,14 @@ fun RemindersScreen(
             if (daMissed.isNotEmpty()) {
                 section(header = "Past due, not uploaded") {
                     Rows(daMissed) { (da, due) ->
-                        ListRow("${da.title} · ${da.courseTitle}", "Was due ${due?.format(DAY)}", titleColor = Bad)
+                        ListRow("${da.title} · ${da.courseTitle}", "Was due ${due?.format(DAY)}", titleColor = Bad, onClick = { onResetUpload(); openDa = da })
                     }
                 }
             }
             if (daDone.isNotEmpty()) {
                 section(header = "Submitted") {
                     Rows(daDone) { (da, _) ->
-                        ListRow("${da.title} · ${da.courseTitle}", da.status, trailing = { Tag("Done", Good) })
+                        ListRow("${da.title} · ${da.courseTitle}", da.status, trailing = { Tag("Done", Good) }, onClick = { onResetUpload(); openDa = da })
                     }
                 }
             }
@@ -159,6 +172,8 @@ fun RemindersScreen(
             leading = { Icon(Icons.Rounded.Add, null, tint = com.shreenipane.orbit.ui.theme.Pastel.Ink) },
         )
     }
+
+    openDa?.let { da -> DaSheet(da, daUpload, onUpload, onOtp) { openDa = null; onResetUpload() } }
 
     if (creating || editing != null) {
         val courseCodes = snap.timetable.courses.map { it.code to it.title }.distinctBy { it.first }
@@ -272,5 +287,90 @@ private fun EditDialog(
             },
             dismissButton = { TextButton(onClick = { pickTime = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun DaSheet(
+    da: DigitalAssignment,
+    state: DaUpload,
+    onUpload: (DigitalAssignment, Uri) -> Unit,
+    onOtp: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri -> if (uri != null) onUpload(da, uri) }
+    var otp by remember { mutableStateOf("") }
+    val due = ExamTime.parseVtopDate(da.dueDate)
+
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = com.shreenipane.orbit.ui.theme.Pastel.Page,
+    ) {
+        Column(Modifier.padding(start = 24.dp, end = 28.dp, bottom = 36.dp)) {
+            Text(da.title, style = MaterialTheme.typography.headlineMedium)
+            Text("${da.courseTitle} · ${da.courseCode}", style = MaterialTheme.typography.bodyMedium,
+                color = com.shreenipane.orbit.ui.theme.Pastel.InkMuted)
+            Spacer(Modifier.height(16.dp))
+            Column(Modifier.fillMaxWidth().brutal(com.shreenipane.orbit.ui.theme.Pastel.Card)) {
+                ListRow("Due", due?.let { d ->
+                    val days = ChronoUnit.DAYS.between(LocalDate.now(), d)
+                    d.format(DAY) + when { days < 0 -> " · past due"; days == 0L -> " · today"; else -> " · in $days days" }
+                } ?: da.dueDate.ifBlank { "Not set" })
+                com.shreenipane.orbit.ui.components.RowDivider()
+                ListRow("Marks", listOf(da.maxMark, da.weightage.takeIf { it.isNotBlank() }?.let { "weightage $it" })
+                    .filterNotNull().filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" })
+                com.shreenipane.orbit.ui.components.RowDivider()
+                ListRow("Status", da.status.ifBlank { "Not uploaded" }, titleColor = if (da.submitted) Good else Bad)
+            }
+            Spacer(Modifier.height(20.dp))
+
+            when (state) {
+                is DaUpload.Working -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp,
+                        color = com.shreenipane.orbit.ui.theme.Pastel.Ink)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Uploading to VTOP…", style = MaterialTheme.typography.bodyLarge)
+                }
+                is DaUpload.NeedOtp -> {
+                    Text("VTOP mailed an OTP to your VIT e-mail to confirm this upload.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(otp, { otp = it.filter(Char::isLetterOrDigit).take(8) }, label = { Text("OTP") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(14.dp))
+                    com.shreenipane.orbit.ui.components.BrutalButton("Confirm upload", { onOtp(da.title, otp) }, Modifier.fillMaxWidth(),
+                        fill = com.shreenipane.orbit.ui.theme.Pastel.Green, enabled = otp.isNotBlank())
+                }
+                is DaUpload.Done -> Text(state.message, color = Good, style = MaterialTheme.typography.titleMedium)
+                is DaUpload.Failed -> Text(state.message, color = Bad, style = MaterialTheme.typography.bodyMedium)
+                DaUpload.Idle -> Unit
+            }
+
+            if (state !is DaUpload.Working && state !is DaUpload.NeedOtp && state !is DaUpload.Done) {
+                Spacer(Modifier.height(14.dp))
+                if (da.canUpload) {
+                    com.shreenipane.orbit.ui.components.BrutalButton(
+                        if (da.submitted) "Replace uploaded file" else "Upload file",
+                        {
+                            picker.launch(arrayOf(
+                                "application/pdf", "application/msword",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "application/vnd.ms-excel",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            ))
+                        },
+                        Modifier.fillMaxWidth(),
+                        fill = com.shreenipane.orbit.ui.theme.Pastel.Yellow,
+                    )
+                    Text("PDF, Word or Excel, up to 4 MB.", style = MaterialTheme.typography.bodySmall,
+                        color = com.shreenipane.orbit.ui.theme.Pastel.InkMuted, modifier = Modifier.padding(top = 8.dp))
+                } else {
+                    Text("VTOP isn't accepting uploads for this DA right now (the deadline may have passed, or the faculty hasn't opened it).",
+                        style = MaterialTheme.typography.bodySmall, color = com.shreenipane.orbit.ui.theme.Pastel.InkMuted)
+                }
+            }
+        }
     }
 }

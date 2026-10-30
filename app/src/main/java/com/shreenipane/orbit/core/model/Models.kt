@@ -161,7 +161,13 @@ data class DigitalAssignment(
     val dueDate: String,
     /** e.g. "File Not Uploaded" or an upload timestamp. */
     val status: String,
+    /** VTOP's per-assignment code, needed to upload. Blank when uploads are closed. */
+    val mcode: String = "",
+    /** Download path of the question paper, if any. */
+    val qpUrl: String = "",
 ) {
+    val canUpload: Boolean get() = mcode.isNotBlank()
+
     val submitted: Boolean
         get() = status.isNotBlank() && !status.contains("Not Uploaded", ignoreCase = true) && status != "-"
 }
@@ -180,6 +186,8 @@ data class Snapshot(
     val exams: List<Exam> = emptyList(),
     val calendar: AcademicCalendar? = null,
     val assignments: List<DigitalAssignment> = emptyList(),
+    /** Parts of the last sync that failed, e.g. "Digital assignments: menu not available". */
+    val warnings: List<String> = emptyList(),
     val fetchedAtMillis: Long = 0,
 )
 

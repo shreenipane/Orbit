@@ -1,13 +1,17 @@
 package com.shreenipane.orbit.ui
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.shreenipane.orbit.core.ShareCode
+import com.shreenipane.orbit.core.model.DigitalAssignment
 import com.shreenipane.orbit.core.model.Friend
+import com.shreenipane.orbit.core.parse.CalendarParsers
 import com.shreenipane.orbit.core.model.Reminder
 import com.shreenipane.orbit.core.model.Snapshot
 import com.shreenipane.orbit.data.AppSettings
@@ -15,7 +19,9 @@ import com.shreenipane.orbit.data.Campus
 import com.shreenipane.orbit.data.Repository
 import com.shreenipane.orbit.data.SessionExpiredException
 import com.shreenipane.orbit.work.Work
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -38,7 +44,17 @@ data class UiState(
     val savedLogin: String? = null,
     /** Calendar class group the user chose; null = automatic (General (Flexible)). */
     val classGroup: String? = null,
+    val daUpload: DaUpload = DaUpload.Idle,
 )
+
+/** Progress of a DA upload, shown in the DA sheet. */
+sealed class DaUpload {
+    object Idle : DaUpload()
+    data class Working(val title: String) : DaUpload()
+    data class NeedOtp(val title: String) : DaUpload()
+    data class Done(val message: String) : DaUpload()
+    data class Failed(val message: String) : DaUpload()
+}
 
 class AppViewModel(private val app: Application, private val repo: Repository) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -69,8 +85,13 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
     /** The login WebView reached VTOP's logged-in page. */
     fun onSignedIn() {
         _state.update { it.copy(showLogin = false, sessionExpired = false) }
+        Work.ensurePeriodic(app, repo.settings) // restarts the keep-alive if it stopped
         refresh()
     }
+
+    fun newLogin() = repo.newLogin()
+
+    fun debugReport(): java.io.File = repo.debugReport()
 
     fun requestSignIn() = _state.update { it.copy(showLogin = true) }
 
@@ -140,7 +161,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         if (next == prev) return
         repo.settings = next
         _state.update { it.copy(settings = next) }
-        if (next.backgroundSync != prev.backgroundSync) Work.ensurePeriodic(app, next)
+        if (next.backgroundSync != prev.backgroundSync || next.keepSignedIn != prev.keepSignedIn) Work.ensurePeriodic(app, next)
         if (next.classAlerts != prev.classAlerts || next.classAlertLeadMinutes != prev.classAlertLeadMinutes ||
             next.examAlerts != prev.examAlerts
         ) Work.planAlerts(app, _state.value.snapshot, next)
@@ -164,6 +185,68 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         val next = edit(_state.value.reminders).sortedBy { it.dueAtMillis }
         _state.update { it.copy(reminders = next) }
         viewModelScope.launch { repo.saveReminders(next) }
+    }
+
+    // ---------- digital assignment upload ----------
+
+    private val daTypes = mapOf(
+        "pdf" to "application/pdf",
+        "doc" to "application/msword",
+        "docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" to "application/vnd.ms-excel",
+        "xlsx" to "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    private fun setUpload(u: DaUpload) = _state.update { it.copy(daUpload = u) }
+
+    fun resetDaUpload() = setUpload(DaUpload.Idle)
+
+    /** Reads the picked file, checks VTOP's limits (PDF/Word/Excel, 4 MB), and uploads it. */
+    fun uploadDa(da: DigitalAssignment, uri: Uri) {
+        viewModelScope.launch {
+            setUpload(DaUpload.Working(da.title))
+            try {
+                val (name, bytes) = withContext(Dispatchers.IO) {
+                    val cr = app.contentResolver
+                    val name = cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) c.getString(0) else null
+                    } ?: "assignment.pdf"
+                    name to (cr.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0))
+                }
+                val ext = name.substringAfterLast('.', "").lowercase()
+                val mime = daTypes[ext]
+                when {
+                    mime == null -> setUpload(DaUpload.Failed("VTOP only takes PDF, Word or Excel files (.pdf, .doc, .docx, .xls, .xlsx)."))
+                    bytes.isEmpty() -> setUpload(DaUpload.Failed("That file is empty."))
+                    bytes.size > 4 * 1024 * 1024 -> setUpload(DaUpload.Failed("That file is %.1f MB; VTOP's limit is 4 MB.".format(bytes.size / 1048576.0)))
+                    else -> handleUpload(da.title, repo.uploadDa(da, name, bytes, mime))
+                }
+            } catch (e: SessionExpiredException) {
+                setUpload(DaUpload.Failed("Your VTOP session ended. Sign in, then upload again."))
+                _state.update { it.copy(sessionExpired = true) }
+            } catch (e: Exception) {
+                setUpload(DaUpload.Failed(e.message ?: "Upload failed."))
+            }
+        }
+    }
+
+    fun submitDaOtp(title: String, otp: String) {
+        viewModelScope.launch {
+            setUpload(DaUpload.Working(title))
+            try {
+                handleUpload(title, repo.verifyDaOtp(otp))
+            } catch (e: Exception) {
+                setUpload(DaUpload.Failed(e.message ?: "OTP check failed."))
+            }
+        }
+    }
+
+    private fun handleUpload(title: String, r: CalendarParsers.UploadResult) {
+        when (r) {
+            CalendarParsers.UploadResult.Success -> { setUpload(DaUpload.Done("$title uploaded.")); refresh(silent = true) }
+            CalendarParsers.UploadResult.OtpRequired -> setUpload(DaUpload.NeedOtp(title))
+            is CalendarParsers.UploadResult.Failed -> setUpload(DaUpload.Failed(r.message))
+        }
     }
 
     // ---------- friends ----------

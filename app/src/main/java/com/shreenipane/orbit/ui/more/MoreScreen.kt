@@ -96,7 +96,10 @@ fun MoreScreen(
             when (destination) {
                 MoreDestination.Exams -> ExamsScreen(snap)
                 MoreDestination.Holidays -> com.shreenipane.orbit.ui.holidays.HolidaysScreen(snap)
-                MoreDestination.Reminders -> RemindersScreen(snap, state.reminders, vm::upsertReminder, vm::toggleDone, vm::deleteReminder)
+                MoreDestination.Reminders -> RemindersScreen(
+                    snap, state.reminders, vm::upsertReminder, vm::toggleDone, vm::deleteReminder,
+                    daUpload = state.daUpload, onUpload = vm::uploadDa, onOtp = vm::submitDaOtp, onResetUpload = vm::resetDaUpload,
+                )
                 MoreDestination.Cgpa -> CgpaScreen(snap)
                 MoreDestination.Friends -> FriendsScreen(snap, state.friends, vm::myShareCode, vm::importFriend, vm::removeFriend, state.settings.alias)
                 MoreDestination.Settings -> SettingsScreen(state, canUseLock, vm)

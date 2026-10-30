@@ -59,29 +59,13 @@ private val WEEKDAY = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 data class AttendancePlan(val tag: String, val color: Color, val line: String)
 
 fun attendancePlan(a: AttendanceRecord, remaining: Int?): AttendancePlan {
-    val pct = AttendanceCalc.percent(a.attended, a.total)
-    if (remaining == null) {
-        val need = AttendanceCalc.neededInARow(a.attended, a.total)
-        val skip = AttendanceCalc.skippable(a.attended, a.total)
-        return when {
-            need > 0 -> AttendancePlan("Attend $need", Bad, "Attend the next $need in a row to reach 75%")
-            skip > 0 -> AttendancePlan("Skip $skip", Good, "You can skip $skip and stay at 75%")
-            else -> AttendancePlan("On the line", Warn, "Don't skip the next class")
-        }
+    val adv = com.shreenipane.orbit.core.calc.AttendanceAdvice.of(a.attended, a.total, remaining)
+    val color = when (adv.level) {
+        com.shreenipane.orbit.core.calc.AttendanceAdvice.Level.GOOD -> Good
+        com.shreenipane.orbit.core.calc.AttendanceAdvice.Level.WARN -> Warn
+        com.shreenipane.orbit.core.calc.AttendanceAdvice.Level.BAD -> Bad
     }
-    if (remaining == 0) {
-        return AttendancePlan("Final", attendanceColor(pct), "No classes left this semester")
-    }
-    val miss = AttendanceCalc.missableOfRemaining(a.attended, a.total, remaining)
-    val best = AttendanceCalc.bestPossible(a.attended, a.total, remaining)
-    return when {
-        miss < 0 -> AttendancePlan("Max %.0f%%".format(best), Bad,
-            "75% is out of reach: best possible is %.1f%% even attending all $remaining left".format(best))
-        miss == 0 -> AttendancePlan("Attend all $remaining", Warn, "Attend all $remaining classes left to finish at 75%")
-        pct < 75.0 -> AttendancePlan("Attend ${remaining - miss}/$remaining", Warn,
-            "Attend at least ${remaining - miss} of the $remaining classes left to reach 75%")
-        else -> AttendancePlan("Can miss $miss", Good, "You can miss $miss of the $remaining classes left")
-    }
+    return AttendancePlan(adv.tag, color, adv.line)
 }
 
 @Composable
@@ -94,6 +78,16 @@ fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit)
         if (tot == 0) null else AttendanceCalc.percent(att, tot)
     }
 
+    // One pass over the calendar per sync, not one per course per frame.
+    val remainingAll = remember(snap, now.toLocalDate()) {
+        ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, now.toLocalDate(), minute)
+    }
+    val rows = remember(snap, remainingAll) {
+        snap.attendance
+            .map { it to ExamPlanner.remainingFrom(remainingAll, it) }
+            .sortedBy { AttendanceCalc.percent(it.first.attended, it.first.total) }
+    }
+
     OrbitScreen(
         title = "Attendance",
         subtitle = overall?.let { "%.1f%% overall".format(it) },
@@ -104,9 +98,6 @@ fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit)
             item { EmptyNote("No attendance yet", "VTOP hasn't posted attendance for this semester.") }
             return@OrbitScreen
         }
-        val rows = snap.attendance
-            .map { it to ExamPlanner.remainingFor(it, snap.calendar, snap.timetable.sessions, now.toLocalDate(), minute) }
-            .sortedBy { AttendanceCalc.percent(it.first.attended, it.first.total) }
         val end = snap.calendar?.let(ExamPlanner::semesterEnd)?.minusDays(1)
         section(
             header = "Courses",

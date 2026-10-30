@@ -17,7 +17,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.MultipartBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.text.SimpleDateFormat
@@ -38,6 +40,8 @@ class VtopClient(
     private val campus: Campus,
     cookieJar: WebViewCookieJar,
     private val userAgent: String = DEFAULT_UA,
+    /** Receives raw pages (name, html) for the debug export in Settings. */
+    private val onRaw: (String, String) -> Unit = { _, _ -> },
 ) {
     private val http = OkHttpClient.Builder()
         .cookieJar(cookieJar)
@@ -97,24 +101,86 @@ class VtopClient(
         return AcademicCalendar(group.id, group.name, days.distinctBy { it.date }.sortedBy { it.date })
     }
 
-    /** Every DA of the semester, across all courses. */
+    /**
+     * Every DA of the semester, across all courses. VTOP's course list is
+     * fetched form-encoded first and multipart as a fallback, because the
+     * campuses differ in which they accept.
+     */
     suspend fun digitalAssignments(semId: String): List<DigitalAssignment> {
         val s = requireSession()
-        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("authorizedID", s.regNo)
-            .addFormDataPart("semesterSubId", semId)
-            .addFormDataPart("_csrf", s.csrf)
-            .build()
-        val courses = CalendarParsers.daCourses(send("/vtop/examinations/doDigitalAssignment", body))
+        var html = try {
+            postData("/vtop/examinations/doDigitalAssignment", "semesterSubId" to semId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "" // fall through to the multipart form below
+        }
+        onRaw("da_courses", html)
+        var courses = CalendarParsers.daCourses(html)
+        if (courses.isEmpty()) {
+            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("authorizedID", s.regNo)
+                .addFormDataPart("semesterSubId", semId)
+                .addFormDataPart("_csrf", s.csrf)
+                .build()
+            html = send("/vtop/examinations/doDigitalAssignment", body)
+            onRaw("da_courses_multipart", html)
+            courses = CalendarParsers.daCourses(html)
+        }
+        if (courses.isEmpty()) {
+            if (VtopParsers.menuUnavailable(html)) throw VtopUnavailableException("VTOP's DA menu is switched off right now.")
+            return emptyList()
+        }
         return coroutineScope {
-            courses.map { c ->
+            courses.mapIndexed { i, c ->
                 async {
-                    runCatching {
-                        CalendarParsers.daList(postData("/vtop/examinations/processDigitalAssignment", "classId" to c.classId), c)
-                    }.getOrDefault(emptyList())
+                    val page = postData("/vtop/examinations/processDigitalAssignment", "classId" to c.classId)
+                    if (i == 0) onRaw("da_list_first_course", page)
+                    CalendarParsers.daList(page, c)
                 }
             }.awaitAll().flatten()
         }
+    }
+
+    /**
+     * Uploads a DA file. VTOP needs the course's DA page opened first, then a
+     * "prepare upload" call that returns code/opt tokens, then the multipart
+     * upload. It may mail an OTP, confirmed with [verifyDaOtp].
+     */
+    suspend fun uploadDa(da: DigitalAssignment, fileName: String, bytes: ByteArray, mime: String): CalendarParsers.UploadResult {
+        val s = requireSession()
+        postData("/vtop/examinations/processDigitalAssignment", "classId" to da.classId)
+        val prep = postData("/vtop/examinations/processDigitalAssignmentUpload", "classId" to da.classId, "mode" to da.mcode)
+        onRaw("da_upload_prepare", prep)
+        val tokens = CalendarParsers.uploadTokens(prep)
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+            addFormDataPart("authorizedID", s.regNo)
+            tokens.forEach { (code, opt) -> addFormDataPart("code", code); addFormDataPart("opt", opt) }
+            addFormDataPart("studDaUpload", fileName, bytes.toRequestBody(mime.toMediaType()))
+            addFormDataPart("_csrf", s.csrf)
+            addFormDataPart("classId", da.classId)
+            addFormDataPart("mCode", da.mcode)
+        }.build()
+        val html = send("/vtop/examinations/doDAssignmentUploadMethod", body)
+        onRaw("da_upload_result", html)
+        return CalendarParsers.uploadResult(html)
+    }
+
+    suspend fun verifyDaOtp(otp: String): CalendarParsers.UploadResult {
+        val s = requireSession()
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("authorizedID", s.regNo)
+            .addFormDataPart("otpEmail", otp.trim())
+            .addFormDataPart("_csrf", s.csrf)
+            .build()
+        val html = send("/vtop/examinations/doDAssignmentOtpUpload", body)
+        onRaw("da_upload_otp_result", html)
+        return CalendarParsers.uploadResult(html)
+    }
+
+    /** Touches the session so VTOP's idle timeout doesn't end it. True if still signed in. */
+    suspend fun keepAlive(): Boolean = withContext(Dispatchers.IO) {
+        runCatching { VtopParsers.session(get("/vtop/content")) != null }.getOrDefault(false)
     }
 
     suspend fun gradeHistory(): GradeHistory =

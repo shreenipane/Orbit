@@ -50,6 +50,15 @@ object Work {
             "plan", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<PlanWorker>(12, TimeUnit.HOURS).build(),
         )
+        if (settings.keepSignedIn) {
+            // 15 minutes is the shortest interval Android allows for periodic work.
+            val req = PeriodicWorkRequestBuilder<KeepAliveWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
+            wm.enqueueUniquePeriodicWork("keepalive", ExistingPeriodicWorkPolicy.KEEP, req)
+        } else {
+            wm.cancelUniqueWork("keepalive")
+        }
     }
 
     private fun alert(context: Context, name: String, tag: String, at: LocalDateTime, channel: String, title: String, text: String) {
@@ -190,5 +199,20 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         } catch (e: Exception) {
             Result.success()
         }
+    }
+}
+
+/**
+ * Touches the VTOP session every ~15 minutes so its idle timeout doesn't sign
+ * you out. When the session has ended anyway (VTOP also ends sessions after a
+ * while, or when you sign in elsewhere), it stops itself until the next sign-in.
+ */
+class KeepAliveWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val repo = (applicationContext as OrbitApp).repository
+        if (!repo.settings.keepSignedIn || repo.cached() == null) return Result.success()
+        val alive = repo.keepAlive()
+        if (!alive) WorkManager.getInstance(applicationContext).cancelUniqueWork("keepalive")
+        return Result.success()
     }
 }

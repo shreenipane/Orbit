@@ -186,6 +186,17 @@ object ExamPlanner {
         return out
     }
 
+    /** Classes left this semester for every course, in one pass. Key: courseKey(code, isLab). */
+    fun remainingAll(cal: AcademicCalendar?, sessions: List<ClassSession>, today: LocalDate, nowMinute: Int): Map<String, Int>? {
+        if (cal == null) return null
+        val end = semesterEnd(cal) ?: return null
+        val (_, courses) = classesBetween(cal, sessions, today, nowMinute, end)
+        return courses.associate { courseKey(it.courseCode, it.isLab) to it.classes }
+    }
+
+    fun remainingFrom(all: Map<String, Int>?, record: AttendanceRecord): Int? =
+        all?.get(courseKey(record.courseCode, isLab(record)))
+
     /** Classes left in the semester for the course behind an attendance record. */
     fun remainingFor(record: AttendanceRecord, cal: AcademicCalendar?, sessions: List<ClassSession>, today: LocalDate, nowMinute: Int): Int? {
         if (cal == null) return null

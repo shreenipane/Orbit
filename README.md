@@ -8,6 +8,8 @@ A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VT
 * **Marks** by course or by exam (CAT-1 across all courses)
 * **Exams:** how many classes are left in each course before CAT 1, CAT 2 and FAT, read from VTOP's academic calendar (B.Tech entries only, General (Flexible) class group by default; holidays skipped, Saturday day orders followed), plus schedule, venue and seat
 * **Holidays:** the next break from the academic calendar (name, dates, days off, weekdays missed, how far away) and every break left this semester
+* **In-app sign-in:** Orbit runs VTOP's login steps itself and shows only VTOP's captcha (and OTP when asked). With a saved login it's a fingerprint plus six characters. The VTOP website is only a fallback for days VTOP uses Google reCAPTCHA. A 15-minute keep-alive stops the session from timing out.
+* **DA upload:** upload PDF/Word/Excel (up to 4 MB) to a digital assignment from the app, including VTOP's e-mail OTP step.
 * **Deadlines:** VTOP digital assignments with days left, past-due and submitted lists, and alerts the evening before and on the day
 * **CGPA planner:** the SGPA you need for a target CGPA, and a "what if I get…" grade picker
 * **Reminders and assignments**, with notifications when they're due
@@ -37,7 +39,7 @@ Debug builds are signed with a fresh key on each CI run, so uninstall the old bu
 2. Run the `app` configuration on a device or emulator (Android 8.0+, API 26).
 3. Pick your campus, tap **Sign in with VTOP**, and log in on VTOP's own page (captcha and OTP included).
 
-To run the unit tests: `gradle test`, or right-click `app/src/test` in Android Studio → Run (25 tests: parsers including the academic calendar and DAs, classes-left counting, attendance and CGPA maths, exam times, share codes, free time, sync diff)
+To run the unit tests: `gradle test`, or right-click `app/src/test` in Android Studio → Run (31 tests: parsers including the academic calendar and DAs, classes-left counting, attendance and CGPA maths, exam times, share codes, free time, sync diff)
 
 ## How it works
 
@@ -80,3 +82,6 @@ VtopClient: /vtop/content → _csrf + authorizedIDX                      │
 * **Exam parser:** tested against a hand-built page that follows VTOP's documented layout, not yet against a live Vellore exam schedule.
 * **Assumptions:** attendance uses the 75% threshold. Lab weightage follows however VTOP counts classes for that course.
 
+## Credits
+
+Endpoint shapes and the recorded test pages in `app/src/test/resources/fixtures/` (except `marks_synthetic.html`) come from [vitap-vtop-client](https://github.com/Udhay-Adithya/vitap-vtop-client) by Udhay Adithya (MIT License). See `NOTICE`.

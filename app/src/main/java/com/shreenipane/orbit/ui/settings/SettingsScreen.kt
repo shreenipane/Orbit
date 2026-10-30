@@ -124,9 +124,35 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             RowDivider()
             Toggle("Exam and DA alerts", "Evening before and on the day", s.examAlerts) { v -> vm.updateSettings { it.copy(examAlerts = v) } }
             RowDivider()
+            Toggle(
+                "Stay signed in",
+                "Touches your VTOP session every 15 min so it doesn't time out. VTOP can still end it (e.g. if you sign in on another device).",
+                s.keepSignedIn,
+            ) { v -> vm.updateSettings { it.copy(keepSignedIn = v) } }
+            RowDivider()
             Toggle("Background sync", "Every 6 h while your VTOP session lasts: new marks, absences, DAs", s.backgroundSync) { v ->
                 vm.updateSettings { it.copy(backgroundSync = v) }
             }
+        }
+
+        section(
+            header = "Help",
+            footer = "The report has the last pages Orbit received from VTOP (DAs, calendar, uploads), with your registration number masked. Send it when a screen is empty or wrong.",
+        ) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            ListRow("Send debug report", "Share what VTOP returned, so parsing can be fixed", chevron = true, onClick = {
+                val file = vm.debugReport()
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+                ctx.startActivity(
+                    android.content.Intent.createChooser(
+                        android.content.Intent(android.content.Intent.ACTION_SEND)
+                            .setType("text/plain")
+                            .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                        "Send debug report",
+                    ),
+                )
+            })
         }
 
         section(footer = "Reminders and friends stay on this phone. Orbit is unofficial and not affiliated with VIT.") {

@@ -1,7 +1,10 @@
 package com.shreenipane.orbit.data
 
 import android.content.Context
+import com.shreenipane.orbit.core.model.AcademicCalendar
+import com.shreenipane.orbit.core.model.DigitalAssignment
 import com.shreenipane.orbit.core.model.Friend
+import com.shreenipane.orbit.core.model.GradeHistory
 import com.shreenipane.orbit.core.model.Reminder
 import com.shreenipane.orbit.core.model.Semester
 import com.shreenipane.orbit.core.model.Snapshot
@@ -23,6 +26,8 @@ data class AppSettings(
     val classAlertLeadMinutes: Int = 10,
     val examAlerts: Boolean = true,
     val backgroundSync: Boolean = true,
+    /** Touch the VTOP session every 15 minutes so it doesn't time out. */
+    val keepSignedIn: Boolean = true,
 )
 
 /**
@@ -66,6 +71,7 @@ class Repository(private val context: Context) {
             classAlertLeadMinutes = prefs.getInt("class_lead", 10),
             examAlerts = prefs.getBoolean("exam_alerts", true),
             backgroundSync = prefs.getBoolean("sync", true),
+            keepSignedIn = prefs.getBoolean("keep_alive", true),
         )
         set(s) = prefs.edit()
             .putString("alias", s.alias.trim())
@@ -74,6 +80,7 @@ class Repository(private val context: Context) {
             .putInt("class_lead", s.classAlertLeadMinutes)
             .putBoolean("exam_alerts", s.examAlerts)
             .putBoolean("sync", s.backgroundSync)
+            .putBoolean("keep_alive", s.keepSignedIn)
             .apply()
 
     // ---------- json files ----------
@@ -102,39 +109,99 @@ class Repository(private val context: Context) {
 
     // ---------- VTOP ----------
 
+    /** Keeps the last raw page of each kind, with the registration number masked, for Settings → debug export. */
+    private fun recordRaw(name: String, html: String) {
+        runCatching {
+            val dir = File(context.filesDir, "debug").apply { mkdirs() }
+            val masked = html.replace(Regex("\\b\\d{2}[A-Z]{3}\\d{4,5}\\b"), "<REGNO>")
+            File(dir, "$name.html").writeText(masked.take(400_000))
+        }
+    }
+
+    private fun newClient() = VtopClient(campus, cookieJar, onRaw = ::recordRaw)
+
+    /** The client from the last successful attach, reused for uploads and OTPs. */
+    @Volatile private var live: VtopClient? = null
+
+    private suspend fun liveClient(): VtopClient =
+        live ?: newClient().also { it.attach(); live = it }
+
+    fun newLogin(): VtopLogin {
+        live = null
+        return VtopLogin(campus, cookieJar)
+    }
+
     /**
      * Pulls a fresh snapshot. Throws [SessionExpiredException] when VTOP wants a
-     * new sign-in; the cached snapshot stays on screen in that case.
+     * new sign-in; the cached snapshot stays on screen in that case. Optional
+     * parts that fail are listed in [Snapshot.warnings] instead of vanishing.
      */
     suspend fun refresh(semesterId: String? = pinnedSemesterId): Snapshot = coroutineScope {
-        val client = VtopClient(campus, cookieJar)
+        val client = newClient()
         val session = client.attach()
+        live = client
         val semesters = client.semesters()
         val sem: Semester? = semesters.firstOrNull { it.id == semesterId } ?: pickCurrent(semesters)
-        val grades = async { runCatching { client.gradeHistory() }.getOrNull() }
+        val warnings = java.util.Collections.synchronizedList(mutableListOf<String>())
+        suspend fun <T> optional(label: String, fallback: T, block: suspend () -> T): T = try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            warnings += "$label: ${e.message ?: e.javaClass.simpleName}"
+            fallback
+        }
+        val grades = async { optional<GradeHistory?>("Grade history", null) { client.gradeHistory() } }
         val snapshot = if (sem == null) {
-            Snapshot(session.regNo, campus.id, null, semesters, grades = grades.await(), fetchedAtMillis = System.currentTimeMillis())
+            Snapshot(session.regNo, campus.id, null, semesters, grades = grades.await(), warnings = warnings.toList(),
+                fetchedAtMillis = System.currentTimeMillis())
         } else {
             val tt = async { client.timetable(sem.id) }
             val att = async { client.attendance(sem.id) }
             // Optional menus: VTOP switches these off at times, which shouldn't sink the whole sync.
-            val marks = async { runCatching { client.marks(sem.id) }.getOrDefault(emptyList()) }
-            val exams = async { runCatching { client.examSchedule(sem.id) }.getOrDefault(emptyList()) }
-            val calendar = async { runCatching { client.academicCalendar(sem.id, classGroupId) }.getOrNull() }
-            val das = async { runCatching { client.digitalAssignments(sem.id) }.getOrDefault(emptyList()) }
+            val marks = async { optional("Marks", emptyList()) { client.marks(sem.id) } }
+            val exams = async { optional("Exam schedule", emptyList()) { client.examSchedule(sem.id) } }
+            val calendar = async { optional<AcademicCalendar?>("Academic calendar", null) { client.academicCalendar(sem.id, classGroupId) } }
+            val das = async { optional("Digital assignments", emptyList()) { client.digitalAssignments(sem.id) } }
+            val previous = cached()
             Snapshot(
                 regNo = session.regNo, campusId = campus.id, semester = sem, semesters = semesters,
                 timetable = tt.await(), attendance = att.await(), marks = marks.await(),
                 grades = grades.await(), exams = exams.await(),
                 // Keep the last good calendar if VTOP's calendar menu is down this time.
-                calendar = calendar.await() ?: cached()?.calendar?.takeIf { cached()?.semester?.id == sem.id },
+                calendar = calendar.await() ?: previous?.calendar?.takeIf { previous?.semester?.id == sem.id },
                 assignments = das.await(),
+                warnings = warnings.toList(),
                 fetchedAtMillis = System.currentTimeMillis(),
             )
         }
         write("snapshot.json", Snapshot.serializer(), snapshot)
         expiryNotified = false
         snapshot
+    }
+
+    suspend fun uploadDa(da: DigitalAssignment, fileName: String, bytes: ByteArray, mime: String) =
+        liveClient().uploadDa(da, fileName, bytes, mime)
+
+    suspend fun verifyDaOtp(otp: String) = liveClient().verifyDaOtp(otp)
+
+    /** Called by the keep-alive job. False means the session has ended. */
+    suspend fun keepAlive(): Boolean = newClient().keepAlive()
+
+    /** One text file with the last raw VTOP pages, for sharing when something parses wrong. */
+    fun debugReport(): File {
+        val dir = File(context.filesDir, "debug").apply { mkdirs() }
+        val out = File(context.cacheDir, "orbit-debug.txt")
+        out.writeText(buildString {
+            append("Orbit debug report · campus ${campus.id}\n")
+            dir.listFiles().orEmpty().sortedBy { it.name }.forEach { f ->
+                append("\n===== ${f.name} (${f.length()} bytes) =====\n")
+                append(f.readText())
+            }
+        })
+        return out
     }
 
     /** VTOP lists the newest semester first, but also lists side semesters (transport, CDC, freshers). */
@@ -146,6 +213,8 @@ class Repository(private val context: Context) {
     suspend fun signOut() = withContext(Dispatchers.IO) {
         cookieJar.clear()
         vault.clear()
+        live = null
+        File(context.filesDir, "debug").deleteRecursively()
         file("snapshot.json").delete()
         prefs.edit().remove("semester").remove("expiry_notified").remove("class_group").apply()
     }

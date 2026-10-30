@@ -73,6 +73,7 @@ fun HomeScreen(
     // Holidays and exam days on the academic calendar have no classes.
     val dayOff = todayCal != null && todayCal.kind in setOf(com.shreenipane.orbit.core.model.DayKind.HOLIDAY, com.shreenipane.orbit.core.model.DayKind.NO_INSTRUCTION, com.shreenipane.orbit.core.model.DayKind.EXAM)
     val sched = Schedule.now(if (dayOff) emptyList() else snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value, minute)
+    val remainingAll = remember(snap, today) { ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, today, minute) }
     val low = snap.attendance.filter { AttendanceCalc.percent(it.attended, it.total) < 75.0 }
     val standing = snap.grades?.let(GradeCalc::standing)
     val countdown = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute).firstOrNull()
@@ -176,7 +177,7 @@ fun HomeScreen(
         if (low.isNotEmpty()) {
             section(header = "Below 75%") {
                 Rows(low) { a ->
-                    val remaining = ExamPlanner.remainingFor(a, snap.calendar, snap.timetable.sessions, today, minute)
+                    val remaining = ExamPlanner.remainingFrom(remainingAll, a)
                     ListRow(
                         a.courseTitle,
                         com.shreenipane.orbit.ui.attendance.attendancePlan(a, remaining).line,

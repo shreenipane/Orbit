@@ -133,22 +133,88 @@ object CalendarParsers {
 
     data class DaCourse(val classId: String, val code: String, val title: String, val type: String)
 
-    /** doDigitalAssignment: one 7-column row per course with DAs. */
+    private val COURSE_CODE = Regex("^[A-Z]{2,6}\\d{3,4}[A-Z]?$")
+    /** Class numbers look like VL2025260100123 / AP2025264000131: campus letters + long digits. */
+    private val CLASS_ID = Regex("\\b([A-Z]{2,4}\\d{9,})\\b")
+    private val DUE = Regex("\\d{1,2}-[A-Za-z]{3}-\\d{4}")
+
+    /**
+     * doDigitalAssignment: one row per course that has DAs. Located by
+     * content, not column position: the course-code cell, then title and
+     * type after it, and the class number from a cell or the row's onclick.
+     */
     fun daCourses(html: String): List<DaCourse> =
         Jsoup.parse(html).select("tr").mapNotNull { tr ->
-            val c = tr.select("> td").map { it.text().trim() }
-            if (c.size != 7 || !c[0].all(Char::isDigit) || c[0].isEmpty()) null
-            else DaCourse(classId = c[1], code = c[2], title = c[3], type = c[4])
-        }
+            val cells = tr.select("> td").map { it.text().trim() }
+            if (cells.size < 5) return@mapNotNull null
+            val iCode = cells.indexOfFirst { COURSE_CODE.matches(it) }
+            if (iCode < 0) return@mapNotNull null
+            val classId = cells.firstOrNull { CLASS_ID.matches(it) }
+                ?: CLASS_ID.find(tr.outerHtml())?.groupValues?.get(1)
+                ?: return@mapNotNull null
+            DaCourse(
+                classId = classId,
+                code = cells[iCode],
+                title = cells.getOrNull(iCode + 1).orEmpty(),
+                type = cells.getOrNull(iCode + 2).orEmpty(),
+            )
+        }.distinctBy { it.classId }
 
-    /** processDigitalAssignment: one 9-column row per assignment of a course. */
+    private val DOWNLOAD = Regex("vtopDownload\\('([^']+)'\\)")
+
+    /**
+     * processDigitalAssignment: one row per assignment. Usual layout is
+     * Sl.No · Title · Max · Weightage · Due · QP · Status · Update · DA, but
+     * only the serial and title positions are relied on; the due date is the
+     * first date-looking cell, and the upload code is the hidden "code" input.
+     */
     fun daList(html: String, course: DaCourse): List<DigitalAssignment> =
         Jsoup.parse(html).select("tr").mapNotNull { tr ->
-            val c = tr.select("> td").map { it.text().trim() }
-            if (c.size != 9 || !c[0].all(Char::isDigit) || c[0].isEmpty()) null
-            else DigitalAssignment(
+            val tds = tr.select("> td")
+            val c = tds.map { it.text().trim() }
+            if (c.size < 6 || c[0].isEmpty() || !c[0].all(Char::isDigit)) return@mapNotNull null
+            val iDue = c.indexOfFirst { DUE.containsMatchIn(it) }.takeIf { it >= 0 } ?: 4
+            val status = when {
+                c.size >= 9 -> c[6]
+                else -> c.firstOrNull { it.contains("Uploaded", true) || it.contains("Not Uploaded", true) }.orEmpty()
+            }
+            val mcode = tr.selectFirst("input[name=code]")?.attr("value")?.trim().orEmpty()
+            val qp = tds.getOrNull(iDue + 1)?.outerHtml()?.let { DOWNLOAD.find(it)?.groupValues?.get(1) }.orEmpty()
+            DigitalAssignment(
                 courseCode = course.code, courseTitle = course.title, courseType = course.type, classId = course.classId,
-                title = c[1], maxMark = c[2], weightage = c[3], dueDate = c[4], status = c[6],
+                title = c[1], maxMark = c.getOrNull(2).orEmpty(), weightage = c.getOrNull(3).orEmpty(),
+                dueDate = c.getOrNull(iDue).orEmpty(), status = status, mcode = mcode, qpUrl = qp,
             )
         }
+
+    /** processDigitalAssignmentUpload returns hidden code/opt pairs the upload must echo back. */
+    fun uploadTokens(html: String): List<Pair<String, String>> {
+        val doc = Jsoup.parse(html)
+        val codes = doc.select("input[name=code]").map { it.attr("value") }
+        val opts = doc.select("input[name=opt]").map { it.attr("value") }
+        return codes.zip(opts)
+    }
+
+    sealed class UploadResult {
+        object Success : UploadResult()
+        object OtpRequired : UploadResult()
+        data class Failed(val message: String) : UploadResult()
+    }
+
+    /**
+     * VTOP answers an upload with a few spans: "Uploaded successfully", or the
+     * student's e-mail address when it has mailed an OTP (then an error, if any,
+     * in the third span), or an error message in the second span.
+     */
+    fun uploadResult(html: String): UploadResult {
+        val spans = Jsoup.parse(html).select("span").map { it.text().trim() }
+        if (spans.isEmpty()) return UploadResult.Failed("VTOP gave an empty response.")
+        if (spans.any { it.equals("Uploaded successfully", true) }) return UploadResult.Success
+        if (spans[0].contains("@")) {
+            val err = spans.getOrNull(2).orEmpty()
+            return if (err.isBlank() && spans.getOrNull(1).isNullOrBlank()) UploadResult.OtpRequired
+            else UploadResult.Failed(err.ifBlank { "VTOP rejected the OTP." })
+        }
+        return UploadResult.Failed(spans.getOrNull(1)?.ifBlank { null } ?: spans[0])
+    }
 }
