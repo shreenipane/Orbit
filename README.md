@@ -80,6 +80,3 @@ VtopClient: /vtop/content → _csrf + authorizedIDX                      │
 * **Exam parser:** tested against a hand-built page that follows VTOP's documented layout, not yet against a live Vellore exam schedule.
 * **Assumptions:** attendance uses the 75% threshold. Lab weightage follows however VTOP counts classes for that course.
 
-## Credits
-
-Endpoint shapes and the recorded test pages in `app/src/test/resources/fixtures/` (except `marks_synthetic.html`) come from [vitap-vtop-client](https://github.com/Udhay-Adithya/vitap-vtop-client) by Udhay Adithya (MIT License). See `NOTICE`.
