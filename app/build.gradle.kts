@@ -13,8 +13,8 @@ android {
         applicationId = "com.shreenipane.orbit"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.11.0"
+        versionCode = 16
+        versionName = "0.11.2"
     }
 
     // A permanent signing key, if CI provides one (see README). Without it the release build is

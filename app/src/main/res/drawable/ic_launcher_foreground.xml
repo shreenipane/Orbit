@@ -1,24 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A planet with a tilted ring: "Orbit". 108dp adaptive canvas, art inside the 66dp safe zone. -->
+<!--
+  Orbit's icon, in the app's neo-brutalist style: a yellow card with a thick ink
+  outline and a hard offset shadow, a heavy "V", and a small salmon planet on the
+  corner. 108dp adaptive canvas; everything sits inside the 66dp safe zone (21–87).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFB4A2"
-        android:strokeWidth="4"
-        android:pathData="M24,62 C24,50 84,38 84,46 C84,58 24,70 24,62 Z" />
-    <path
-        android:fillColor="#FFD166"
-        android:pathData="M54,54 m-17,0 a17,17 0 1,0 34,0 a17,17 0 1,0 -34,0" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFB4A2"
-        android:strokeWidth="4"
-        android:pathData="M37,58 C50,56 68,52 84,46" />
-    <path
-        android:fillColor="#7BDFF2"
-        android:pathData="M82,30 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+    <!-- Scaled to 75% around the centre so the card's corners and the planet stay inside the 66dp safe circle. -->
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.75" android:scaleY="0.75">
+        <!-- hard shadow -->
+        <path
+            android:fillColor="#111111"
+            android:pathData="M42,31 H74 A10,10 0 0 1 84,41 V73 A10,10 0 0 1 74,83 H42 A10,10 0 0 1 32,73 V41 A10,10 0 0 1 42,31 Z" />
+        <!-- card -->
+        <path
+            android:fillColor="#FFEA79"
+            android:strokeColor="#111111"
+            android:strokeWidth="3.5"
+            android:pathData="M38,27 H70 A10,10 0 0 1 80,37 V69 A10,10 0 0 1 70,79 H38 A10,10 0 0 1 28,69 V37 A10,10 0 0 1 38,27 Z" />
+        <!-- V -->
+        <path
+            android:fillColor="#111111"
+            android:pathData="M35.5,36 L45,36 L54,59 L63,36 L72.5,36 L58.6,70 L49.4,70 Z" />
+        <!-- planet -->
+        <path
+            android:fillColor="#FFAD93"
+            android:strokeColor="#111111"
+            android:strokeWidth="2.5"
+            android:pathData="M76,29 m-5.5,0 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0" />
+    </group>
 </vector>

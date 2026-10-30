@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon version (Android 13+ tints it): the card outline and the V in one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Scaled to 75% around the centre so the card's corners and the planet stay inside the 66dp safe circle. -->
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.75" android:scaleY="0.75">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:pathData="M38,27 H70 A10,10 0 0 1 80,37 V69 A10,10 0 0 1 70,79 H38 A10,10 0 0 1 28,69 V37 A10,10 0 0 1 38,27 Z" />
+        <path
+            android:fillColor="#000000"
+            android:pathData="M35.5,36 L45,36 L54,59 L63,36 L72.5,36 L58.6,70 L49.4,70 Z" />
+    </group>
+</vector>

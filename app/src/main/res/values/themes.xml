@@ -5,5 +5,5 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">@color/page</item>
     </style>
-    <color name="ic_launcher_background">#CEE4E5</color>
+    <color name="ic_launcher_background">#A7D5D7</color>
 </resources>
