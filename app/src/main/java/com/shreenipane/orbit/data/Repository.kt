@@ -2,6 +2,10 @@ package com.shreenipane.orbit.data
 
 import android.content.Context
 import com.shreenipane.orbit.core.model.AcademicCalendar
+import com.shreenipane.orbit.core.model.AttendanceRecord
+import com.shreenipane.orbit.core.model.CampusInfo
+import com.shreenipane.orbit.core.model.ClassOverride
+import com.shreenipane.orbit.core.model.PlannedCourse
 import com.shreenipane.orbit.core.model.DigitalAssignment
 import com.shreenipane.orbit.core.model.Friend
 import com.shreenipane.orbit.core.model.GradeHistory
@@ -28,6 +32,12 @@ data class AppSettings(
     val backgroundSync: Boolean = true,
     /** Touch the VTOP session every 15 minutes so it doesn't time out. */
     val keepSignedIn: Boolean = true,
+    /** 0 = follow the phone, 1 = light, 2 = dark. */
+    val themeMode: Int = 0,
+    val weeklyReport: Boolean = true,
+    val feeReminders: Boolean = true,
+    /** Credits your curriculum needs per category (code → credits), entered on the CGPA screen. */
+    val creditTargets: Map<String, Double> = emptyMap(),
 )
 
 /**
@@ -72,6 +82,13 @@ class Repository(private val context: Context) {
             examAlerts = prefs.getBoolean("exam_alerts", true),
             backgroundSync = prefs.getBoolean("sync", true),
             keepSignedIn = prefs.getBoolean("keep_alive", true),
+            themeMode = prefs.getInt("theme", 0),
+            weeklyReport = prefs.getBoolean("weekly", true),
+            feeReminders = prefs.getBoolean("fees", true),
+            creditTargets = (prefs.getString("credit_targets", "") ?: "").split(';').mapNotNull { e ->
+                val k = e.substringBefore('=', ""); val v = e.substringAfter('=', "").toDoubleOrNull()
+                if (k.isBlank() || v == null) null else k to v
+            }.toMap(),
         )
         set(s) = prefs.edit()
             .putString("alias", s.alias.trim())
@@ -81,6 +98,10 @@ class Repository(private val context: Context) {
             .putBoolean("exam_alerts", s.examAlerts)
             .putBoolean("sync", s.backgroundSync)
             .putBoolean("keep_alive", s.keepSignedIn)
+            .putInt("theme", s.themeMode)
+            .putBoolean("weekly", s.weeklyReport)
+            .putBoolean("fees", s.feeReminders)
+            .putString("credit_targets", s.creditTargets.entries.joinToString(";") { "${it.key}=${it.value}" })
             .apply()
 
     // ---------- json files ----------
@@ -99,13 +120,105 @@ class Repository(private val context: Context) {
         }
     }
 
-    suspend fun cached(): Snapshot? = read("snapshot.json", Snapshot.serializer())
+    suspend fun cached(): Snapshot? = read("snapshot.json", Snapshot.serializer())?.let { snap ->
+        // Older versions saved whatever calendar VTOP returned, even another semester's.
+        snap.copy(calendar = com.shreenipane.orbit.core.calc.SemesterWindow.fit(snap.calendar, snap.semester?.name))
+    }
 
     suspend fun reminders(): List<Reminder> = read("reminders.json", ListSerializer(Reminder.serializer())) ?: emptyList()
     suspend fun saveReminders(list: List<Reminder>) = write("reminders.json", ListSerializer(Reminder.serializer()), list)
 
     suspend fun friends(): List<Friend> = read("friends.json", ListSerializer(Friend.serializer())) ?: emptyList()
     suspend fun saveFriends(list: List<Friend>) = write("friends.json", ListSerializer(Friend.serializer()), list)
+
+    suspend fun overrides(): List<ClassOverride> = read("overrides.json", ListSerializer(ClassOverride.serializer())) ?: emptyList()
+    suspend fun saveOverrides(list: List<ClassOverride>) = write("overrides.json", ListSerializer(ClassOverride.serializer()), list)
+
+    suspend fun planner(): List<PlannedCourse> = read("planner.json", ListSerializer(PlannedCourse.serializer())) ?: emptyList()
+    suspend fun savePlanner(list: List<PlannedCourse>) = write("planner.json", ListSerializer(PlannedCourse.serializer()), list)
+
+    suspend fun campusInfo(): CampusInfo? = read("campus.json", CampusInfo.serializer())
+    private suspend fun saveCampus(c: CampusInfo) = write("campus.json", CampusInfo.serializer(), c)
+
+    /** Attendance as of the last weekly report, to compare against. */
+    suspend fun weeklyBaseline(): List<AttendanceRecord>? = read("weekly.json", ListSerializer(AttendanceRecord.serializer()))
+    suspend fun saveWeeklyBaseline(list: List<AttendanceRecord>) = write("weekly.json", ListSerializer(AttendanceRecord.serializer()), list)
+
+    // ---------- backup ----------
+
+    @kotlinx.serialization.Serializable
+    data class Backup(
+        val version: Int = 1,
+        val reminders: List<Reminder> = emptyList(),
+        val friends: List<Friend> = emptyList(),
+        val overrides: List<ClassOverride> = emptyList(),
+        val planner: List<PlannedCourse> = emptyList(),
+        val alias: String = "",
+    )
+
+    /** Everything that lives only on this phone, as JSON. VTOP data isn't included; it re-syncs. */
+    suspend fun backupJson(): String = json.encodeToString(
+        Backup.serializer(),
+        Backup(reminders = reminders(), friends = friends(), overrides = overrides(), planner = planner(), alias = settings.alias),
+    )
+
+    /** Restores a backup, merging with what's already here (backup wins on clashes). */
+    suspend fun restore(text: String): Backup {
+        val b = json.decodeFromString(Backup.serializer(), text)
+        saveReminders((reminders().filterNot { r -> b.reminders.any { it.id == r.id } } + b.reminders).sortedBy { it.dueAtMillis })
+        saveFriends(friends().filterNot { f -> b.friends.any { it.name == f.name } } + b.friends)
+        saveOverrides(overrides().filterNot { o -> b.overrides.any { it.id == o.id } } + b.overrides)
+        savePlanner(planner().filterNot { p -> b.planner.any { it.id == p.id } } + b.planner)
+        if (b.alias.isNotBlank() && settings.alias.isBlank()) settings = settings.copy(alias = b.alias)
+        return b
+    }
+
+    /** Writes the calendar export to a shareable file. */
+    suspend fun icsFile(): File? = withContext(Dispatchers.IO) {
+        val snap = cached() ?: return@withContext null
+        val text = com.shreenipane.orbit.core.calc.IcsExport.build(snap, overrides(), java.time.LocalDate.now(), java.time.LocalDateTime.now())
+        File(context.cacheDir, "orbit-${snap.semester?.id ?: "semester"}.ics").apply { writeText(text) }
+    }
+
+    // ---------- campus pages ----------
+
+    /** Announcements, proctor, HOD/Dean and fees, each optional, cached for offline viewing. */
+    suspend fun refreshCampus(): CampusInfo = coroutineScope {
+        val c = liveClient()
+        val old = campusInfo() ?: CampusInfo()
+        suspend fun <T> soft(fallback: T, block: suspend () -> T): T = try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            live = null; throw e
+        } catch (e: Exception) {
+            fallback
+        }
+        val a = async { soft(old.announcements) { c.announcements() } }
+        val p = async { soft(old.proctor) { c.proctor() } }
+        val h = async { soft(old.hodDean) { c.hodDean() } }
+        val d = async { soft(old.pending) { c.pendingPayments() } }
+        val r = async { soft(old.receipts) { c.receipts() } }
+        CampusInfo(a.await(), p.await(), h.await(), d.await(), r.await(), System.currentTimeMillis()).also { saveCampus(it) }
+    }
+
+    suspend fun facultySearch(term: String) = liveClient().facultySearch(term)
+    suspend fun facultyDetail(empId: String) = liveClient().facultyDetail(empId)
+    suspend fun biometric(date: java.time.LocalDate) =
+        liveClient().biometric(date.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")))
+    suspend fun gradeView(semId: String) = liveClient().gradeView(semId)
+
+    suspend fun gradeStats(semId: String, courseId: String) = liveClient().gradeStats(semId, courseId)
+
+    /** Grade ranges for a course; finds its detail id on the semester's grade view first. */
+    suspend fun courseGradeStats(semId: String, code: String, type: String? = null): com.shreenipane.orbit.core.model.GradeStats? {
+        val c = liveClient()
+        val list = c.gradeView(semId)
+        val course = list.firstOrNull { it.code == code && (type == null || it.type == type) } ?: list.firstOrNull { it.code == code }
+        val id = course?.courseId?.takeIf { it.isNotBlank() } ?: return null
+        return c.gradeStats(semId, id)
+    }
 
     // ---------- VTOP ----------
 
@@ -163,7 +276,14 @@ class Repository(private val context: Context) {
             // Optional menus: VTOP switches these off at times, which shouldn't sink the whole sync.
             val marks = async { optional("Marks", emptyList()) { client.marks(sem.id) } }
             val exams = async { optional("Exam schedule", emptyList()) { client.examSchedule(sem.id) } }
-            val calendar = async { optional<AcademicCalendar?>("Academic calendar", null) { client.academicCalendar(sem.id, classGroupId) } }
+            val calendar = async {
+                optional<AcademicCalendar?>("Academic calendar", null) {
+                    val raw = client.academicCalendar(sem.id, classGroupId)
+                    val fitted = com.shreenipane.orbit.core.calc.SemesterWindow.fit(raw, sem.name)
+                    if (raw != null && fitted == null) warnings += "Academic calendar: VTOP sent another semester's calendar, so classes-left counts are off"
+                    fitted
+                }
+            }
             val das = async { optional("Digital assignments", emptyList()) { client.digitalAssignments(sem.id) } }
             val previous = cached()
             Snapshot(
@@ -171,7 +291,8 @@ class Repository(private val context: Context) {
                 timetable = tt.await(), attendance = att.await(), marks = marks.await(),
                 grades = grades.await(), exams = exams.await(),
                 // Keep the last good calendar if VTOP's calendar menu is down this time.
-                calendar = calendar.await() ?: previous?.calendar?.takeIf { previous?.semester?.id == sem.id },
+                calendar = calendar.await()
+                    ?: com.shreenipane.orbit.core.calc.SemesterWindow.fit(previous?.calendar?.takeIf { previous?.semester?.id == sem.id }, sem.name),
                 assignments = das.await(),
                 warnings = warnings.toList(),
                 fetchedAtMillis = System.currentTimeMillis(),

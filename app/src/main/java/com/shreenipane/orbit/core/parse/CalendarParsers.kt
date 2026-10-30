@@ -85,11 +85,31 @@ object CalendarParsers {
         return null
     }
 
-    internal fun classify(texts: List<String>): Triple<DayKind, String?, Int?> {
-        val relevant = texts.filterNot { OTHER_PROGRAMME.containsMatchIn(it) }
+    /**
+     * VTOP can put every class group's entry for a day into one block:
+     * "Instructional Day General (Semester) Instructional Day General (Flexible)
+     * Instructional Day General Freshers". Split before each entry so one
+     * group's text (e.g. Freshers) doesn't knock out the whole day.
+     */
+    private val ENTRY_START = Regex(
+        "(?<!no\\s)(?=\\b(?:no\\s+)?instructional\\s+day|\\bholiday\\b|\\bworking\\s*day)",
+        RegexOption.IGNORE_CASE,
+    )
+
+    internal fun entries(texts: List<String>): List<String> =
+        texts.flatMap { t -> t.split(ENTRY_START).map { it.trim() }.filter { it.isNotEmpty() } }
+
+    private fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+
+    internal fun classify(texts: List<String>, group: String? = null): Triple<DayKind, String?, Int?> {
+        val all = entries(texts)
+        // Your class group's own entry wins when VTOP lists several groups on one day.
+        val mine = group?.let(::norm)?.takeIf { it.isNotEmpty() }?.let { g -> all.filter { norm(it).contains(g) } }.orEmpty()
+        val relevant = mine.ifEmpty { all.filterNot { OTHER_PROGRAMME.containsMatchIn(it) } }
         if (relevant.isEmpty()) return Triple(DayKind.UNKNOWN, null, null)
         val joined = relevant.joinToString(" ")
-        val dayOrder = dayOrderOf(joined)
+        // A "Saturday - Monday Day Order" note can sit in its own entry next to the group's.
+        val dayOrder = dayOrderOf(joined) ?: dayOrderOf(all.filterNot { OTHER_PROGRAMME.containsMatchIn(it) }.joinToString(" "))
         examOf(joined)?.let { return Triple(DayKind.EXAM, it, null) }
         val lower = joined.lowercase()
         return when {
@@ -102,7 +122,7 @@ object CalendarParsers {
     }
 
     /** One month grid → dated days. [calDate] is the key it was requested with, e.g. "01-AUG-2026". */
-    fun month(html: String, calDate: String): List<CalendarDay> {
+    fun month(html: String, calDate: String, group: String? = null): List<CalendarDay> {
         val parts = calDate.split("-")
         if (parts.size != 3) return emptyList()
         val month = MONTHS.indexOf(parts[1].uppercase()) + 1
@@ -119,7 +139,7 @@ object CalendarParsers {
             // Fold "(label)" spans into the description before them.
             val events = mutableListOf<String>()
             texts.forEach { if (it.startsWith("(") && events.isNotEmpty()) events[events.lastIndex] += " $it" else events += it }
-            val (kind, exam, order) = classify(events)
+            val (kind, exam, order) = classify(events, group)
             out += CalendarDay(
                 date = "%04d-%02d-%02d".format(year, month, n),
                 kind = kind, exam = exam, dayOrder = order,

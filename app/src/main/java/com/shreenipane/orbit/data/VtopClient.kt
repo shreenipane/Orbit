@@ -1,6 +1,14 @@
 package com.shreenipane.orbit.data
 
 import com.shreenipane.orbit.core.model.AcademicCalendar
+import com.shreenipane.orbit.core.model.Announcement
+import com.shreenipane.orbit.core.model.BiometricEntry
+import com.shreenipane.orbit.core.model.Faculty
+import com.shreenipane.orbit.core.model.GradeResult
+import com.shreenipane.orbit.core.model.GradeStats
+import com.shreenipane.orbit.core.model.KeyValue
+import com.shreenipane.orbit.core.model.PendingPayment
+import com.shreenipane.orbit.core.model.Receipt
 import com.shreenipane.orbit.core.model.AttendanceRecord
 import com.shreenipane.orbit.core.model.CourseMarks
 import com.shreenipane.orbit.core.model.DigitalAssignment
@@ -9,6 +17,7 @@ import com.shreenipane.orbit.core.model.GradeHistory
 import com.shreenipane.orbit.core.model.Semester
 import com.shreenipane.orbit.core.model.Timetable
 import com.shreenipane.orbit.core.parse.CalendarParsers
+import com.shreenipane.orbit.core.parse.CampusParsers
 import com.shreenipane.orbit.core.parse.VtopParsers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -94,6 +103,7 @@ class VtopClient(
                     CalendarParsers.month(
                         postData("/vtop/processViewCalendar", "calDate" to m, "semSubId" to semId, "classGroupId" to group.id),
                         m,
+                        group.name,
                     )
                 }
             }.awaitAll().flatten()
@@ -182,6 +192,74 @@ class VtopClient(
     suspend fun keepAlive(): Boolean = withContext(Dispatchers.IO) {
         runCatching { VtopParsers.session(get("/vtop/content")) != null }.getOrDefault(false)
     }
+
+    // ---------- campus pages ----------
+
+    /**
+     * Posts form-encoded first and multipart second: VTOP campuses differ in
+     * which one a page accepts. Returns the first response that isn't the
+     * "menu not available" modal.
+     */
+    private suspend fun postEither(name: String, path: String, vararg fields: Pair<String, String>): String {
+        val s = requireSession()
+        val first = try {
+            postData(path, *fields)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        if (first != null && first.contains("<t")) { onRaw(name, first); return first }
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+            addFormDataPart("authorizedID", s.regNo)
+            fields.forEach { (k, v) -> addFormDataPart(k, v) }
+            addFormDataPart("_csrf", s.csrf)
+        }.build()
+        return send(path, body).also { onRaw("${name}_multipart", it) }
+    }
+
+    suspend fun announcements(): List<Announcement> =
+        CampusParsers.announcements(postData("/vtop/home").also { onRaw("spotlight_home", it) })
+
+    suspend fun proctor(): List<KeyValue> =
+        CampusParsers.keyValues(postData("/vtop/proctor/viewProctorDetails").also { onRaw("proctor", it) })
+
+    suspend fun hodDean(): List<KeyValue> =
+        CampusParsers.keyValues(postData("/vtop/hrms/viewHodDeanDetails").also { onRaw("hod_dean", it) })
+
+    suspend fun facultySearch(term: String): List<Faculty> =
+        CampusParsers.facultySearch(postData("/vtop/hrms/EmployeeSearchForStudent", "empId" to term).also { onRaw("faculty_search", it) })
+
+    suspend fun facultyDetail(empId: String): List<KeyValue> =
+        CampusParsers.facultyDetail(postData("/vtop/hrms/EmployeeSearch1ForStudent", "empId" to empId).also { onRaw("faculty_detail", it) })
+
+    suspend fun pendingPayments(): List<PendingPayment> {
+        val html = runCatching { postShell("/vtop/finance/Payments") }.getOrNull()
+            ?.takeIf { it.contains("<table") || it.contains("no payment dues", true) }
+            ?: postShell("/vtop/p2p/Payments")
+        onRaw("payments_due", html)
+        return CampusParsers.pendingPayments(html)
+    }
+
+    suspend fun receipts(): List<Receipt> =
+        CampusParsers.receipts(postShell("/vtop/p2p/getReceiptsApplno").also { onRaw("receipts", it) })
+
+    /** [date] as dd/MM/yyyy. */
+    suspend fun biometric(date: String): List<BiometricEntry> {
+        runCatching { postShell("/vtop/academics/biometriclogdisplay") }
+        return CampusParsers.biometric(postData("/vtop/getStudBioHistory", "fromDate" to date).also { onRaw("biometric", it) })
+    }
+
+    suspend fun gradeView(semId: String): List<GradeResult> =
+        CampusParsers.gradeView(postEither("grade_view", "/vtop/examinations/examGradeView/doStudentGradeView", "semesterSubId" to semId))
+
+    /** Grade ranges, mean and SD for one course of a semester's results. */
+    suspend fun gradeStats(semId: String, courseId: String): GradeStats? =
+        CampusParsers.gradeStats(
+            postEither("grade_detail", "/vtop/examinations/examGradeView/getGradeViewDetails", "semesterSubId" to semId, "courseId" to courseId),
+        )
 
     suspend fun gradeHistory(): GradeHistory =
         VtopParsers.gradeHistory(postShell("/vtop/examinations/examGradeView/StudentGradeHistory"))

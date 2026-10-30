@@ -73,15 +73,15 @@ fun Modifier.brutal(
     .drawBehind {
         if (shadow > 0.dp) {
             val s = shadow.toPx()
-            drawRoundRect(Pastel.Ink, topLeft = Offset(s, s), size = size, cornerRadius = CornerRadius(radius.toPx()))
+            drawRoundRect(Pastel.Line, topLeft = Offset(s, s), size = size, cornerRadius = CornerRadius(radius.toPx()))
         }
     }
     .clip(RoundedCornerShape(radius))
     .background(fill)
-    .border(border, Pastel.Ink, RoundedCornerShape(radius))
+    .border(border, Pastel.Line, RoundedCornerShape(radius))
 
 /** Tile colours cycle through the pastel set so a row of stats doesn't look flat. */
-val TILE_COLORS = listOf(Pastel.Yellow, Pastel.Green, Pastel.Lavender, Pastel.Sky, Pastel.Salmon)
+val TILE_COLORS: List<Color> get() = listOf(Pastel.Yellow, Pastel.Green, Pastel.Lavender, Pastel.Sky, Pastel.Salmon)
 
 /**
  * A screen with a large hand-drawn title that scrolls with the content.
@@ -206,7 +206,7 @@ fun ListRow(
 /** Divider between rows: a solid ink line, like the cards' outlines but thinner. */
 @Composable
 fun RowDivider(inset: Dp = 0.dp) {
-    HorizontalDivider(Modifier.padding(start = inset), thickness = 1.5.dp, color = Pastel.Ink.copy(alpha = 0.85f))
+    HorizontalDivider(Modifier.padding(start = inset), thickness = 1.5.dp, color = Pastel.Line.copy(alpha = 0.85f))
 }
 
 /** Rows with dividers between them. */
@@ -221,7 +221,7 @@ fun <T> ColumnScope.Rows(items: List<T>, inset: Dp = 0.dp, row: @Composable (T) 
 /** A progress ring with a black outline. */
 @Composable
 fun ThinRing(fraction: Float, color: Color, label: String, size: Dp = 46.dp, stroke: Dp = 5.dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(Color.White).border(2.dp, Pastel.Ink, CircleShape), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(CircleShape).background(Pastel.Card).border(2.dp, Pastel.Line, CircleShape), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size - 4.dp)) {
             val s = stroke.toPx()
             val arc = Size(this.size.width - s, this.size.height - s)
@@ -248,7 +248,7 @@ fun Tag(text: String, color: Color) {
 
 @Composable
 fun Dot(color: Color, size: Dp = 9.dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(color).border(1.dp, Pastel.Ink, CircleShape))
+    Box(Modifier.size(size).clip(CircleShape).background(color).border(1.dp, Pastel.Line, CircleShape))
 }
 
 /** A stat tile: big number, small caption, pastel fill. */
@@ -274,7 +274,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
                     .weight(1f)
                     .then(
                         if (on) Modifier.clip(RoundedCornerShape(9.dp)).background(Pastel.Yellow)
-                            .border(1.5.dp, Pastel.Ink, RoundedCornerShape(9.dp))
+                            .border(1.5.dp, Pastel.Line, RoundedCornerShape(9.dp))
                         else Modifier.clip(RoundedCornerShape(9.dp)),
                     )
                     .clickable { onSelect(i) }

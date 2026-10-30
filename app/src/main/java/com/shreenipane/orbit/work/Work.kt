@@ -50,6 +50,18 @@ object Work {
             "plan", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<PlanWorker>(12, TimeUnit.HOURS).build(),
         )
+        if (settings.weeklyReport) {
+            // First run next Sunday 19:00, then every 7 days.
+            val now = LocalDateTime.now()
+            var next = now.toLocalDate().with(java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.SUNDAY)).atTime(19, 0)
+            if (!next.isAfter(now)) next = next.plusWeeks(1)
+            val req = PeriodicWorkRequestBuilder<WeeklyReportWorker>(7, TimeUnit.DAYS)
+                .setInitialDelay(Duration.between(now, next).toMillis(), TimeUnit.MILLISECONDS)
+                .build()
+            wm.enqueueUniquePeriodicWork("weekly", ExistingPeriodicWorkPolicy.KEEP, req)
+        } else {
+            wm.cancelUniqueWork("weekly")
+        }
         if (settings.keepSignedIn) {
             // 15 minutes is the shortest interval Android allows for periodic work.
             val req = PeriodicWorkRequestBuilder<KeepAliveWorker>(15, TimeUnit.MINUTES)
@@ -73,7 +85,11 @@ object Work {
     }
 
     /** Re-plans class alerts for today and tomorrow, and exam alerts for the next two weeks. */
-    fun planAlerts(context: Context, snap: Snapshot?, settings: AppSettings) {
+    fun planAlerts(
+        context: Context, snap: Snapshot?, settings: AppSettings,
+        overrides: List<com.shreenipane.orbit.core.model.ClassOverride> = emptyList(),
+        campus: com.shreenipane.orbit.core.model.CampusInfo? = null,
+    ) {
         val wm = WorkManager.getInstance(context)
         wm.cancelAllWorkByTag(TAG_CLASS)
         wm.cancelAllWorkByTag(TAG_EXAM)
@@ -86,7 +102,8 @@ object Work {
                 val calDay = snap.calendar?.days?.firstOrNull { it.date == date.toString() }
                 if (calDay != null && calDay.kind in setOf(com.shreenipane.orbit.core.model.DayKind.HOLIDAY, com.shreenipane.orbit.core.model.DayKind.NO_INSTRUCTION, com.shreenipane.orbit.core.model.DayKind.EXAM)) continue
                 val weekday = calDay?.dayOrder ?: date.dayOfWeek.value
-                snap.timetable.sessions.filter { it.day == weekday }.forEach { s ->
+                com.shreenipane.orbit.core.calc.Overrides.day(snap.timetable.sessions.filter { it.day == weekday }, date, overrides)
+                    .filterNot { it.cancelled }.map { it.session }.forEach { s ->
                     val start = date.atTime(LocalTime.parse(s.start))
                     alert(
                         context, "class-$date-${s.start}-${s.slot}", TAG_CLASS,
@@ -107,6 +124,15 @@ object Work {
                     Notifier.EXAMS, "${e.examType} tomorrow: ${e.courseTitle}", "$time · $where")
                 alert(context, "exam-1h-${e.examType}-${e.courseCode}", TAG_EXAM, start.minusHours(1),
                     Notifier.EXAMS, "${e.examType} in 1 hour: ${e.courseTitle}", "Report by ${e.reportingTime.ifBlank { time }} · $where")
+            }
+            // Fees due on VTOP: two days before at 10:00, and on the day.
+            if (settings.feeReminders) campus?.pending?.forEach { f ->
+                val due = ExamTime.parseVtopDate(f.dueDate) ?: return@forEach
+                if (due.isBefore(now.toLocalDate())) return@forEach
+                alert(context, "fee-2d-${f.reference}", TAG_EXAM, due.minusDays(2).atTime(10, 0), Notifier.EXAMS,
+                    "Fee due in 2 days: ${f.head}", "₹${f.total} · pay on VTOP by ${f.dueDate}")
+                alert(context, "fee-day-${f.reference}", TAG_EXAM, due.atTime(9, 0), Notifier.EXAMS,
+                    "Fee due today: ${f.head}", "₹${f.total} · pay on VTOP today")
             }
             // Digital assignments still to upload, due in the next two weeks.
             val today = now.toLocalDate()
@@ -161,7 +187,9 @@ class AlertWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
 class PlanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         val repo = (applicationContext as OrbitApp).repository
-        Work.planAlerts(applicationContext, repo.cached(), repo.settings)
+        val snap = repo.cached()
+        Work.planAlerts(applicationContext, snap, repo.settings, repo.overrides(), repo.campusInfo())
+        com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, snap, repo.overrides())
         return Result.success()
     }
 }
@@ -183,7 +211,17 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             if (notes.size > 5) {
                 Notifier.post(applicationContext, Notifier.SYNC, 2005, "${notes.size - 5} more updates", "Open Orbit to see everything that changed.")
             }
-            Work.planAlerts(applicationContext, fresh, repo.settings)
+            // Announcements and fees ride along; new announcements get a notification.
+            val oldCampus = repo.campusInfo()
+            val campus = runCatching { repo.refreshCampus() }.getOrNull()
+            if (campus != null && oldCampus != null) {
+                val fresh2 = campus.announcements.filterNot { it in oldCampus.announcements }
+                fresh2.take(3).forEachIndexed { i, a ->
+                    Notifier.post(applicationContext, Notifier.SYNC, 2100 + i, "New on VTOP · ${a.category}", a.text)
+                }
+            }
+            Work.planAlerts(applicationContext, fresh, repo.settings, repo.overrides(), campus ?: oldCampus)
+            com.shreenipane.orbit.widget.OrbitWidget.update(applicationContext, fresh, repo.overrides())
             Result.success()
         } catch (e: SessionExpiredException) {
             if (!repo.expiryNotified) {
@@ -213,6 +251,23 @@ class KeepAliveWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
         if (!repo.settings.keepSignedIn || repo.cached() == null) return Result.success()
         val alive = repo.keepAlive()
         if (!alive) WorkManager.getInstance(applicationContext).cancelUniqueWork("keepalive")
+        return Result.success()
+    }
+}
+
+/** Sunday evening: how attendance moved this week, compared with last Sunday's numbers. */
+class WeeklyReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val repo = (applicationContext as OrbitApp).repository
+        if (!repo.settings.weeklyReport) return Result.success()
+        val snap = repo.cached() ?: return Result.success()
+        val before = repo.weeklyBaseline()
+        if (before != null) {
+            val lines = com.shreenipane.orbit.core.calc.WeeklyReport.lines(before, snap.attendance)
+            Notifier.post(applicationContext, Notifier.SYNC, 2200, "Your week in attendance",
+                com.shreenipane.orbit.core.calc.WeeklyReport.summary(lines))
+        }
+        repo.saveWeeklyBaseline(snap.attendance)
         return Result.success()
     }
 }

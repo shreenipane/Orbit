@@ -13,7 +13,16 @@ A native Android (Kotlin + Jetpack Compose) app for VIT students, pulled from VT
 * **Deadlines:** VTOP digital assignments with days left, past-due and submitted lists, and alerts the evening before and on the day
 * **CGPA planner:** the SGPA you need for a target CGPA, and a "what if I get…" grade picker
 * **Reminders and assignments**, with notifications when they're due
-* **Friends:** swap timetables with a share code (no server involved) and see when you're all free
+* **Friends:** scan each other's QR code (or paste a share code) to swap timetables, then see when you're all free. No server is involved, so each of you scans once; after you scan a friend, Orbit shows your QR for them to scan back.
+* **Class changes:** mark a class cancelled or add an extra class; classes-left counts, alerts, the widget and the calendar export follow them
+* **Marks extras:** the FAT score you need for each target total
+* **Exams extras:** a revision plan across the days before your papers, and past-paper links
+* **Results:** published grades per semester; tap a course for its grade ranges, class mean and class size
+* **CGPA:** a calculator (target CGPA, what-if grades) and a grade history tab showing which categories (discipline core, electives, open electives, NGCR…) you still need, with every past course and its grade ranges
+* **Calendar:** VTOP's academic calendar as a month grid; tap a day to see whether it's a class day, holiday or exam and which classes run
+* **FFCS planner:** type slot combos (A1+TA1, L31+L32) to check clashes and credits before registration
+* **Campus:** VTOP announcements, your proctor, HOD and Dean, faculty search (cabin, e-mail, open hours), fees due and receipts, and the hostel biometric log
+* **Home-screen widget** with the next class; **calendar export** (.ics); **backup and restore** of everything kept only on the phone; **weekly attendance report** on Sunday evening; **fee reminders**; light, dark or system theme
 * **Alerts:** before each class, the evening before an exam and an hour before it, and for new marks or absences after a background sync
 * **App lock** with fingerprint, face or screen lock, plus a display name of your choice
 * **Fingerprint login locker:** after one password sign-in, Orbit can save your VTOP login encrypted with AES-256-GCM. The key lives in Android Keystore, can't be exported, and unlocks only after a strong-biometric check. It persists until you sign out (Android wipes it if you enrol a new fingerprint). Signing in then means a fingerprint plus typing the captcha. SHA-256 isn't used for this, because it's a one-way hash and a stored password has to be readable again.
@@ -80,8 +89,12 @@ VtopClient: /vtop/content → _csrf + authorizedIDX                      │
 * **Background sync limits:** VTOP sessions are short-lived, and Orbit deliberately never stores your password. Background sync therefore only works while your last sign-in is still valid. After that you get one "sign in to keep syncing" notification and saved data stays on screen.
 * **Alert timing:** WorkManager can delay alerts by a few minutes when the phone is idle, in exchange for needing no exact-alarm permission.
 * **Exam parser:** tested against a hand-built page that follows VTOP's documented layout, not yet against a live Vellore exam schedule.
+* **New in 0.7, untested against live VTOP:** the Campus pages (announcements, proctor, HOD/Dean, faculty search, fees, biometric log) and semester results. Their parsers were built from VTOP's documented layouts; if one shows nothing, send the debug report from Settings.
+* **Not included:** course page view, mess menu and hostel outing requests (outing requests are left out on purpose: a wrong guess at the format could file a real leave request).
 * **Assumptions:** attendance uses the 75% threshold. Lab weightage follows however VTOP counts classes for that course.
 
 ## Credits
+
+QR codes use [ZXing](https://github.com/zxing/zxing) and [zxing-android-embedded](https://github.com/journeyapps/zxing-android-embedded) (Apache License 2.0).
 
 Endpoint shapes and the recorded test pages in `app/src/test/resources/fixtures/` (except `marks_synthetic.html`) come from [vitap-vtop-client](https://github.com/Udhay-Adithya/vitap-vtop-client) by Udhay Adithya (MIT License). See `NOTICE`.

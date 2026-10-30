@@ -88,7 +88,7 @@ fun HolidaysScreen(snap: Snapshot) {
 
         val end = ExamPlanner.semesterEnd(cal)?.minusDays(1)
         if (end != null && !end.isBefore(today)) {
-            section(footer = "Breaks group consecutive days without classes (holidays, no-instruction days and the weekends around them). A plain weekend isn't listed.") {
+            section {
                 ListRow("Last instructional day", "${end.format(DAY)} · in ${ChronoUnit.DAYS.between(today, end)} days")
             }
         }

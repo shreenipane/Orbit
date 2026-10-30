@@ -37,10 +37,11 @@ private val DAY = DateTimeFormatter.ofPattern("EEE, d MMM")
 private val DAY_TIME = DateTimeFormatter.ofPattern("EEE, d MMM · h:mm a")
 
 @Composable
-fun ExamsScreen(snap: Snapshot) {
+fun ExamsScreen(snap: Snapshot, overrides: List<com.shreenipane.orbit.core.model.ClassOverride> = emptyList()) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val now = LocalDateTime.now()
     val minute = now.hour * 60 + now.minute
-    val countdowns = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute)
+    val countdowns = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute, overrides)
     var pick by rememberSaveable { mutableIntStateOf(0) }
 
     OrbitScreen(title = "Exams", subtitle = snap.calendar?.classGroupName ?: snap.semester?.name) {
@@ -66,13 +67,49 @@ fun ExamsScreen(snap: Snapshot) {
             }
         }
 
-        val matrix = ExamPlanner.matrix(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute)
+        val matrix = ExamPlanner.matrix(snap.calendar, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute, overrides)
         if (matrix != null) {
             section(
                 header = "Classes left per subject",
-                footer = "Counted from the ${snap.calendar?.classGroupName ?: "academic"} calendar: instructional days only (Saturdays and Sundays too when VTOP marks them), " +
-                    "holidays skipped, day-order swaps followed. A lab block counts as one class. \"Done\" means that exam has started or passed.",
+                footer = "A lab block counts as one class.",
             ) { MatrixTable(matrix) }
+        }
+
+        // Revision plan for the next exam: per-course dates from the schedule, else the exam window's first day.
+        countdowns.firstOrNull()?.let { cd ->
+            val papers = snap.timetable.courses.filterNot { it.isLab }.associate { c ->
+                val dated = snap.exams.filter { it.courseCode == c.code && ExamPlanner.normalizeExam(it.examType) == cd.exam }
+                    .mapNotNull { ExamTime.date(it) }.minOrNull()
+                c.title to (dated ?: cd.start)
+            }
+            val plan = com.shreenipane.orbit.core.calc.StudyPlan.plan(papers, now.toLocalDate()).take(14)
+            if (plan.isNotEmpty()) {
+                section(
+                    header = "Study plan for ${cd.label}",
+                    footer = null,
+                ) {
+                    Rows(plan) { d ->
+                        ListRow(
+                            d.subjects.joinToString(" + "),
+                            d.date.format(DateTimeFormatter.ofPattern("EEE, d MMM")) + if (d.date == now.toLocalDate()) " · today" else "",
+                        )
+                    }
+                }
+            }
+        }
+
+        // Previous-year papers from CodeChef-VIT's archive, by subject.
+        val theory = snap.timetable.courses.filterNot { it.isLab }.distinctBy { it.code }
+        if (theory.isNotEmpty()) {
+            section(header = "Past papers", footer = "From papers.codechefvit.com") {
+                Rows(theory) { c ->
+                    ListRow(c.title, c.code, chevron = true, onClick = {
+                        val q = java.net.URLEncoder.encode("${c.title} [${c.code}]", "UTF-8")
+                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://papers.codechefvit.com/catalogue?subject=$q")))
+                    })
+                }
+            }
         }
 
         snap.exams.groupBy { it.examType.ifBlank { "Exams" } }.forEach { (type, list) ->

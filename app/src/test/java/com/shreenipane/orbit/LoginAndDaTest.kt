@@ -82,14 +82,14 @@ class AttendanceAdviceTest {
     @Test fun everyBranch() {
         val out = a(24, 40, 2)                // out of reach
         assertEquals("Max 62%", out.tag)
-        assertTrue(out.line.startsWith("75% is out of reach: best possible is 61.9%"))
-        assertEquals("Attend all 4", a(26, 36, 4).tag)        // 30/40 = 75% exactly
-        assertEquals("Attend all 10", a(28, 40, 10).tag)       // 38/50 = 76% needs all ten
-        assertEquals("Attend 16/20", a(29, 40, 20).tag)       // 45/60 = 75% with 16 of 20
-        assertEquals("Can miss 8", a(36, 40, 10).tag)        // 38/50 = 76%
-        assertEquals("Final", a(30, 40, 0).tag)
+        assertEquals("Can't reach 75% · best is 61.9%", out.line)
+        assertEquals("Attend all", a(26, 36, 4).tag)        // 30/40 = 75% exactly
+        assertEquals("Attend all", a(28, 40, 10).tag)       // 38/50 = 76% needs all ten
+        assertEquals("Attend 16", a(29, 40, 20).tag)       // 45/60 = 75% with 16 of 20
+        assertEquals("Skip 8", a(36, 40, 10).tag)        // 38/50 = 76%
+        assertEquals("Done", a(30, 40, 0).tag)
         assertEquals("Attend 8", a(7, 12, null).tag)
         assertEquals("Skip 1", a(30, 39, null).tag)
-        assertEquals("On the line", a(30, 40, null).tag)       // exactly 75%
+        assertEquals("Don't skip", a(30, 40, null).tag)       // exactly 75%
     }
 }

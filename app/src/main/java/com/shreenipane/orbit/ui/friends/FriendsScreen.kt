@@ -3,6 +3,25 @@
 package com.shreenipane.orbit.ui.friends
 
 import android.content.Intent
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import com.shreenipane.orbit.ui.components.brutal
+import com.shreenipane.orbit.ui.theme.Pastel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -69,10 +88,32 @@ fun FriendsScreen(
     val ctx = LocalContext.current
     var adding by remember { mutableStateOf(false) }
     var day by remember { mutableIntStateOf(LocalDate.now().dayOfWeek.value.coerceAtMost(6)) }
+    var showQr by remember { mutableStateOf<QrMode?>(null) }
+    var scanError by remember { mutableStateOf<String?>(null) }
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val text = result.contents ?: return@rememberLauncherForActivityResult
+        val err = onImport(text)
+        scanError = err
+        // Hand the phone back with my code showing, so the friend can add me too.
+        if (err == null) showQr = QrMode.AfterScan(ShareCode.decode(text)?.name.orEmpty())
+    }
+    fun launchScan() {
+        scanError = null
+        scanner.launch(
+            ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setPrompt("Point at your friend's Orbit QR")
+                .setBeepEnabled(false)
+                .setOrientationLocked(true),
+        )
+    }
 
     OrbitScreen(title = "Friends", subtitle = "Timetables") {
-        section(footer = "Shares a code friends paste into Orbit, plus a readable copy. Nothing goes through a server.") {
-            ListRow("Share my timetable", null, chevron = true, titleColor = MaterialTheme.colorScheme.primary, onClick = {
+        section(footer = "Both of you scan once to swap timetables.") {
+            ListRow("Show my QR", "Let a friend scan you", chevron = true, onClick = { showQr = QrMode.Mine })
+            RowDivider()
+            ListRow("Scan a friend's QR", "Opens the camera", chevron = true, onClick = { launchScan() })
+            RowDivider()
+            ListRow("Share as text", "For WhatsApp or Telegram", chevron = true, onClick = {
                 val code = myCode() ?: return@ListRow
                 val name = alias.ifBlank { snap.regNo }
                 val text = ShareCode.plainText(name, snap.timetable.sessions) + "\nAdd me in Orbit:\n$code"
@@ -82,11 +123,14 @@ fun FriendsScreen(
                 ))
             })
             RowDivider()
-            ListRow("Add a friend", null, chevron = true, titleColor = MaterialTheme.colorScheme.primary, onClick = { adding = true })
+            ListRow("Paste a code", null, chevron = true, onClick = { adding = true })
+        }
+        scanError?.let { msg ->
+            item { Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp)) }
         }
 
         if (friends.isEmpty()) {
-            item { EmptyNote("No friends yet", "Ask a friend to share their Orbit code, then tap Add a friend.") }
+            item { EmptyNote("No friends yet", "Scan a friend's QR, or paste a code they sent you.") }
             return@OrbitScreen
         }
 
@@ -113,6 +157,58 @@ fun FriendsScreen(
     }
 
     if (adding) AddFriendDialog(onImport) { adding = false }
+    showQr?.let { mode ->
+        MyQrDialog(myCode(), alias.ifBlank { snap.regNo }, mode, onScan = { showQr = null; launchScan() }) { showQr = null }
+    }
+}
+
+private sealed class QrMode {
+    data object Mine : QrMode()
+    data class AfterScan(val friend: String) : QrMode()
+}
+
+@Composable
+private fun MyQrDialog(code: String?, name: String, mode: QrMode, onScan: () -> Unit, onClose: () -> Unit) {
+    val bitmap = remember(code) { code?.let { runCatching { qrBitmap(it) }.getOrNull() } }
+    AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = Pastel.Page,
+        title = {
+            Text(if (mode is QrMode.AfterScan) "Added ${mode.friend.ifBlank { "your friend" }}" else "My timetable")
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                if (mode is QrMode.AfterScan) {
+                    Text("Now let them scan yours so they get your timetable too.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                }
+                if (bitmap == null) {
+                    Text("Sync your timetable first.", color = MaterialTheme.colorScheme.error)
+                } else {
+                    // QR codes need dark-on-light, so the code sits on white even in dark mode.
+                    Box(Modifier.brutal(Color.White, radius = 14.dp).padding(12.dp)) {
+                        Image(bitmap, contentDescription = "QR code with your timetable",
+                            filterQuality = FilterQuality.None, modifier = Modifier.size(248.dp))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(name, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Done") } },
+        dismissButton = {
+            if (mode is QrMode.Mine) TextButton(onClick = onScan) { Text("Scan theirs") }
+        },
+    )
+}
+
+/** Renders [text] as a QR code, one pixel per module (scaled up crisply by the Image). */
+private fun qrBitmap(text: String): ImageBitmap {
+    val hints = mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 2)
+    val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, hints)
+    val w = m.width; val h = m.height
+    val px = IntArray(w * h) { i -> if (m.get(i % w, i / w)) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
+    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
 @Composable
@@ -125,7 +221,7 @@ private fun AddFriendDialog(onImport: (String) -> String?, onClose: () -> Unit) 
         title = { Text("Add a friend") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Paste the message your friend shared. It contains a code starting with ORBIT1.")
+                Text("Paste the message your friend sent.")
                 OutlinedTextField(text, { text = it; error = null }, label = { Text("Share code") }, minLines = 3,
                     isError = error != null, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

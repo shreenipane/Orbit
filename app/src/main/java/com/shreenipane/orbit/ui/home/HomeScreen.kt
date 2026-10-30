@@ -1,5 +1,6 @@
 package com.shreenipane.orbit.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import com.shreenipane.orbit.core.calc.AttendanceCalc
 import com.shreenipane.orbit.core.calc.ExamPlanner
 import com.shreenipane.orbit.core.calc.ExamTime
-import com.shreenipane.orbit.core.calc.GradeCalc
 import com.shreenipane.orbit.core.calc.Schedule
 import com.shreenipane.orbit.core.model.ClassSession
 import com.shreenipane.orbit.core.model.Reminder
@@ -61,7 +61,11 @@ fun HomeScreen(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onOpen: (MoreDestination) -> Unit,
+    overrides: List<com.shreenipane.orbit.core.model.ClassOverride> = emptyList(),
+    onToggleCancel: (java.time.LocalDate, ClassSession) -> Unit = { _, _ -> },
+    onRemoveOverride: (com.shreenipane.orbit.core.model.ClassOverride) -> Unit = {},
 ) {
+    var acting by remember { mutableStateOf<ClassSession?>(null) }
     // Re-evaluate "now" every 30 s so the Now/Next card moves on its own.
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = LocalDateTime.now() } }
@@ -72,11 +76,21 @@ fun HomeScreen(
     val todayOrder = todayCal?.dayOrder
     // Holidays and exam days on the academic calendar have no classes.
     val dayOff = todayCal != null && todayCal.kind in setOf(com.shreenipane.orbit.core.model.DayKind.HOLIDAY, com.shreenipane.orbit.core.model.DayKind.NO_INSTRUCTION, com.shreenipane.orbit.core.model.DayKind.EXAM)
-    val sched = Schedule.now(if (dayOff) emptyList() else snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value, minute)
-    val remainingAll = remember(snap, today) { ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, today, minute) }
+    // Today's classes with your changes applied: cancelled ones stay listed (crossed out), extras are added.
+    val dayClasses = if (dayOff) emptyList() else com.shreenipane.orbit.core.calc.Overrides.day(
+        Schedule.forDay(snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value), today, overrides)
+    val active = dayClasses.filterNot { it.cancelled }.map { it.session }
+    fun mins(t: String) = t.substring(0, 2).toInt() * 60 + t.substring(3, 5).toInt()
+    val nextUp = active.firstOrNull { mins(it.start) > minute }
+    val sched = Schedule.Now(
+        ongoing = active.firstOrNull { minute >= mins(it.start) && minute < mins(it.end) },
+        next = nextUp,
+        today = active,
+        minutesToNext = nextUp?.let { mins(it.start) - minute },
+    )
+    val remainingAll = remember(snap, today, overrides) { ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, today, minute, overrides) }
     val low = snap.attendance.filter { AttendanceCalc.percent(it.attended, it.total) < 75.0 }
-    val standing = snap.grades?.let(GradeCalc::standing)
-    val countdown = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute).firstOrNull()
+    val countdown = ExamPlanner.countdowns(snap.calendar, snap.exams, snap.timetable.sessions, today, minute, overrides).firstOrNull()
     val nextBreak = com.shreenipane.orbit.core.calc.Breaks.upcoming(snap.calendar, today).firstOrNull()
     val pendingDas = snap.assignments.filter { !it.submitted }
         .mapNotNull { da -> ExamTime.parseVtopDate(da.dueDate)?.let { da to it } }
@@ -99,19 +113,23 @@ fun HomeScreen(
 
         item {
             Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Metric(overall?.let { "%.0f%%".format(it) } ?: "—", "Attendance", Modifier.weight(1f),
+                Metric(overall?.let { "${Math.round(it)}%" } ?: "—", "Attendance", Modifier.weight(1f),
                     fill = overall?.let { com.shreenipane.orbit.ui.theme.pastelFor(attendanceColor(it)) } ?: Pastel.Yellow)
-                Metric(standing?.let { "%.2f".format(it.cgpa) } ?: "—", "CGPA", Modifier.weight(1f), fill = Pastel.Lavender)
                 Metric(countdown?.let { "${it.daysLeft}d" } ?: "—", countdown?.let { "To ${it.label}" } ?: "Next exam", Modifier.weight(1f),
                     fill = Pastel.Sky)
             }
         }
 
-        section(header = "Classes today") {
-            if (sched.today.isEmpty()) {
-                ListRow("No classes today", todayCal?.label?.takeIf { dayOff && it.isNotBlank() } ?: "Pull down to refresh if that looks wrong.")
+        section(header = "Classes today", action = "Calendar" to { onOpen(MoreDestination.Calendar) }) {
+            if (dayClasses.isEmpty()) {
+                ListRow("No classes today", todayCal?.label?.takeIf { dayOff && it.isNotBlank() })
             } else {
-                Rows(sched.today, inset = 82.dp) { s -> ClassRow(s, isNow = s == sched.ongoing) }
+                Rows(dayClasses, inset = 82.dp) { dc ->
+                    androidx.compose.foundation.layout.Box(Modifier.clickable { acting = dc.session }) {
+                        ClassRow(dc.session, isNow = dc.session == sched.ongoing, struck = dc.cancelled,
+                            trailing = if (dc.cancelled) "Cancelled" else if (dc.extra) "Extra" else null)
+                    }
+                }
             }
         }
 
@@ -120,7 +138,7 @@ fun HomeScreen(
                 if (countdown != null) {
                     ListRow(
                         title = "${countdown.label} in ${countdown.daysLeft} ${if (countdown.daysLeft == 1L) "day" else "days"}",
-                        subtitle = "${countdown.totalClasses} classes left · ${countdown.instructionalDaysLeft} instructional days · ${countdown.start.format(SHORT)}",
+                        subtitle = "${countdown.start.format(SHORT)} · ${countdown.totalClasses} classes before it",
                         onClick = { onOpen(MoreDestination.Exams) },
                         chevron = true,
                     )
@@ -128,9 +146,8 @@ fun HomeScreen(
                 if (nextBreak != null) {
                     if (countdown != null) RowDivider()
                     ListRow(
-                        title = "${nextBreak.title} · ${nextBreak.days} ${if (nextBreak.days == 1) "day" else "days"} off",
-                        subtitle = com.shreenipane.orbit.ui.holidays.breakRange(nextBreak) + " · " +
-                            com.shreenipane.orbit.ui.holidays.breakWhen(nextBreak, today),
+                        title = nextBreak.title,
+                        subtitle = com.shreenipane.orbit.ui.holidays.breakRange(nextBreak) + " · ${nextBreak.days} ${if (nextBreak.days == 1) "day" else "days"} off",
                         onClick = { onOpen(MoreDestination.Holidays) },
                         chevron = true,
                     )
@@ -140,7 +157,7 @@ fun HomeScreen(
                     val days = ChronoUnit.DAYS.between(today, due)
                     ListRow(
                         title = da.title,
-                        subtitle = "${da.courseTitle} · due ${due.format(SHORT)}",
+                        subtitle = da.courseTitle,
                         onClick = { onOpen(MoreDestination.Reminders) },
                         trailing = {
                             Text(
@@ -180,7 +197,7 @@ fun HomeScreen(
                     val remaining = ExamPlanner.remainingFrom(remainingAll, a)
                     ListRow(
                         a.courseTitle,
-                        com.shreenipane.orbit.ui.attendance.attendancePlan(a, remaining).line,
+                        com.shreenipane.orbit.ui.attendance.attendancePlan(a, remaining).tag,
                         trailing = { Text("${a.vtopPercent}%", fontWeight = FontWeight.SemiBold, color = Bad) },
                     )
                 }
@@ -189,12 +206,16 @@ fun HomeScreen(
 
         item {
             Text(
-                "${snap.regNo} · synced ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(snap.fetchedAtMillis))}",
+                "Synced ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(snap.fetchedAtMillis))}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 20.dp, start = 4.dp),
             )
         }
+    }
+
+    acting?.let { s ->
+        com.shreenipane.orbit.ui.timetable.ClassActionSheet(s, today, overrides, onToggleCancel, onRemoveOverride) { acting = null }
     }
 }
 
@@ -217,7 +238,7 @@ private fun NowCard(s: Schedule.Now) {
                 Text("${ongoing.venue} · ${ongoing.slot}", style = MaterialTheme.typography.bodyMedium, color = ink)
                 if (next != null) {
                     Spacer(Modifier.height(10.dp))
-                    Text("Next: ${next.courseTitle} at ${next.start}", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
+                    Text("Then ${next.courseTitle} at ${next.start}", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
                 }
             }
             next != null -> {
@@ -241,7 +262,7 @@ private fun NowCard(s: Schedule.Now) {
 private fun humanMinutes(m: Int) = if (m < 60) "$m min" else "${m / 60}h ${m % 60}m"
 
 @Composable
-fun ClassRow(s: ClassSession, isNow: Boolean, trailing: String? = null) {
+fun ClassRow(s: ClassSession, isNow: Boolean, trailing: String? = null, struck: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         TimeColumn(s.start, s.end)
         Spacer(Modifier.width(14.dp))
@@ -249,7 +270,9 @@ fun ClassRow(s: ClassSession, isNow: Boolean, trailing: String? = null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isNow) { Dot(com.shreenipane.orbit.ui.theme.Pastel.Green); Spacer(Modifier.width(6.dp)) }
                 Text(s.courseTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    textDecoration = if (struck) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                    color = if (struck) Pastel.InkMuted else Pastel.Ink)
             }
             Text(
                 listOf(s.venue, s.slot, if (s.isLab) "Lab" else null).filterNotNull().joinToString(" · "),

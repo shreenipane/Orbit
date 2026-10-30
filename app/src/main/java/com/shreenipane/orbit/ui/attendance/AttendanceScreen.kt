@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.shreenipane.orbit.ui.attendance
 
@@ -49,6 +49,11 @@ import com.shreenipane.orbit.ui.theme.Bad
 import com.shreenipane.orbit.ui.theme.Good
 import com.shreenipane.orbit.ui.theme.Warn
 import com.shreenipane.orbit.ui.theme.attendanceColor
+import com.shreenipane.orbit.ui.theme.Pastel
+import com.shreenipane.orbit.ui.theme.pastelFor
+import com.shreenipane.orbit.ui.components.Metric
+import com.shreenipane.orbit.ui.components.labLabel
+import androidx.compose.ui.text.style.TextOverflow
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -69,7 +74,10 @@ fun attendancePlan(a: AttendanceRecord, remaining: Int?): AttendancePlan {
 }
 
 @Composable
-fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit) {
+fun AttendanceScreen(
+    snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit,
+    overrides: List<com.shreenipane.orbit.core.model.ClassOverride> = emptyList(),
+) {
     var open by remember { mutableStateOf<AttendanceRecord?>(null) }
     val now = LocalDateTime.now()
     val minute = now.hour * 60 + now.minute
@@ -79,8 +87,8 @@ fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit)
     }
 
     // One pass over the calendar per sync, not one per course per frame.
-    val remainingAll = remember(snap, now.toLocalDate()) {
-        ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, now.toLocalDate(), minute)
+    val remainingAll = remember(snap, now.toLocalDate(), overrides) {
+        ExamPlanner.remainingAll(snap.calendar, snap.timetable.sessions, now.toLocalDate(), minute, overrides)
     }
     val rows = remember(snap, remainingAll) {
         snap.attendance
@@ -88,38 +96,62 @@ fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit)
             .sortedBy { AttendanceCalc.percent(it.first.attended, it.first.total) }
     }
 
-    OrbitScreen(
-        title = "Attendance",
-        subtitle = overall?.let { "%.1f%% overall".format(it) },
-        refreshing = refreshing,
-        onRefresh = onRefresh,
-    ) {
+    val plans = remember(rows) { rows.map { (a, rem) -> Triple(a, rem, attendancePlan(a, rem)) } }
+    val safe = plans.count { it.third.color == Good }
+    val atRisk = plans.size - safe
+    val end = snap.calendar?.let(ExamPlanner::semesterEnd)?.minusDays(1)
+
+    OrbitScreen(title = "Attendance", refreshing = refreshing, onRefresh = onRefresh) {
         if (snap.attendance.isEmpty()) {
-            item { EmptyNote("No attendance yet", "VTOP hasn't posted attendance for this semester.") }
+            item { EmptyNote("No attendance yet", "VTOP hasn't posted any for this semester.") }
             return@OrbitScreen
         }
-        val end = snap.calendar?.let(ExamPlanner::semesterEnd)?.minusDays(1)
-        section(
-            header = "Courses",
-            footer = if (snap.calendar != null && end != null)
-                "Classes left are counted from the ${snap.calendar.classGroupName} academic calendar up to the last instructional day (${end.format(DATE)}), including instructional Saturdays and Sundays and day-order swaps. Tap a course to plan."
-            else "Sign in again to load the academic calendar; until then, counts assume classes continue indefinitely.",
-        ) {
-            Rows(rows, inset = 74.dp) { (a, remaining) ->
-                val plan = attendancePlan(a, remaining)
-                ListRow(
-                    title = a.courseTitle,
-                    subtitle = "${a.attended}/${a.total} · ${a.courseType.ifBlank { a.slot }}" +
-                        (remaining?.let { "\n$it classes left" } ?: ""),
-                    leading = { ThinRing(a.vtopPercent / 100f, attendanceColor(AttendanceCalc.percent(a.attended, a.total)), "${a.vtopPercent}") },
-                    trailing = { Tag(plan.tag, plan.color) },
-                    onClick = { open = a },
-                )
+        item {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Metric(overall?.let { "${Math.round(it)}%" } ?: "–", "Overall", Modifier.weight(1f),
+                    fill = overall?.let { pastelFor(attendanceColor(it)) } ?: Pastel.Yellow)
+                Metric("$safe", "Safe", Modifier.weight(1f), fill = Pastel.Green)
+                Metric("$atRisk", "Need care", Modifier.weight(1f), fill = if (atRisk > 0) Pastel.Salmon else Pastel.Card)
+            }
+        }
+        section(header = "Courses") {
+            Rows(plans, inset = 72.dp) { (a, remaining, plan) ->
+                CourseRow(a, remaining, plan) { open = a }
+            }
+        }
+        if (end != null) {
+            item {
+                Text("Classes left are counted to ${end.format(DATE)}", style = MaterialTheme.typography.bodySmall,
+                    color = Pastel.InkMuted, modifier = Modifier.padding(start = 4.dp, top = 10.dp))
             }
         }
     }
 
-    open?.let { a -> PlannerSheet(a, snap, now, minute) { open = null } }
+    open?.let { a -> PlannerSheet(a, snap, now, minute, overrides) { open = null } }
+}
+
+/** One course: ring, name on one line, "32/44 · Lab · 12 left", and a short verdict. */
+@Composable
+private fun CourseRow(a: AttendanceRecord, remaining: Int?, plan: AttendancePlan, onClick: () -> Unit) {
+    val pct = AttendanceCalc.percent(a.attended, a.total)
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ThinRing(a.vtopPercent / 100f, attendanceColor(pct), "${a.vtopPercent}", size = 44.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(a.courseTitle, style = MaterialTheme.typography.bodyLarge, color = Pastel.Ink,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull("${a.attended}/${a.total}", labLabel(ExamPlanner.isLab(a)), remaining?.takeIf { it > 0 }?.let { "$it left" })
+                    .joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted, maxLines = 1,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Tag(plan.tag, plan.color)
+    }
 }
 
 /**
@@ -128,11 +160,14 @@ fun AttendanceScreen(snap: Snapshot, refreshing: Boolean, onRefresh: () -> Unit)
  * You can't plan more classes than the calendar has left.
  */
 @Composable
-private fun PlannerSheet(a: AttendanceRecord, snap: Snapshot, now: LocalDateTime, minute: Int, onDismiss: () -> Unit) {
+private fun PlannerSheet(
+    a: AttendanceRecord, snap: Snapshot, now: LocalDateTime, minute: Int,
+    overrides: List<com.shreenipane.orbit.core.model.ClassOverride>, onDismiss: () -> Unit,
+) {
     val cal = snap.calendar
     val dates = remember(a, cal) {
         if (cal == null) emptyList()
-        else ExamPlanner.classDates(cal, snap.timetable.sessions, a.courseCode, ExamPlanner.isLab(a), now.toLocalDate(), minute)
+        else ExamPlanner.classDates(cal, snap.timetable.sessions, a.courseCode, ExamPlanner.isLab(a), now.toLocalDate(), minute, overrides = overrides)
     }
     val missed = remember(a) { mutableStateListOf<Int>() }
     val attend = dates.size - missed.size
@@ -142,42 +177,40 @@ private fun PlannerSheet(a: AttendanceRecord, snap: Snapshot, now: LocalDateTime
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Pastel.Page,
     ) {
         LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.92f), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 Column(Modifier.padding(horizontal = 24.dp)) {
                     Text(a.courseTitle, style = MaterialTheme.typography.titleLarge)
-                    Text("${a.courseCode} · ${a.slot} · ${a.faculty}", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${labLabel(ExamPlanner.isLab(a))} · ${a.slot}", style = MaterialTheme.typography.bodySmall,
+                        color = Pastel.InkMuted)
                     Spacer(Modifier.height(20.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ThinRing((finalPct / 100).toFloat(), attendanceColor(finalPct), "%.1f".format(finalPct), size = 84.dp, stroke = 6.dp)
                         Spacer(Modifier.width(20.dp))
                         Column {
-                            Text("Final attendance", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("By the end", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
                             Text("${a.attended + attend}/${a.total + dates.size} classes", fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                if (cal == null) "Academic calendar not loaded" else "Attending $attend of ${dates.size} left",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            if (cal != null) {
+                                Text("Attending $attend of ${dates.size}", style = MaterialTheme.typography.bodySmall, color = Pastel.InkMuted)
+                            }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text(plan.line, color = plan.color, style = MaterialTheme.typography.bodyMedium)
-                    val matrix = remember(a, cal) { ExamPlanner.matrix(cal, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute) }
+                    Text(plan.line, color = Pastel.Ink, style = MaterialTheme.typography.bodyMedium)
+                    val matrix = remember(a, cal) { ExamPlanner.matrix(cal, snap.exams, snap.timetable.sessions, now.toLocalDate(), minute, overrides) }
                     val row = matrix?.rows?.firstOrNull { it.courseCode == a.courseCode && it.isLab == ExamPlanner.isLab(a) }
                     if (matrix != null && row != null) {
                         val labels = ExamPlanner.EXAMS.toMap()
-                        Text(
-                            "Classes left · " + matrix.exams.joinToString("  ·  ") { (key, _) ->
-                                "before ${labels[key]}: ${row.left[key]?.toString() ?: "done"}"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
+                        val upcoming = matrix.exams.mapNotNull { (key, _) -> row.left[key]?.let { (labels[key] ?: key) to it } }
+                        if (upcoming.isNotEmpty()) {
+                            androidx.compose.foundation.layout.FlowRow(Modifier.padding(top = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                upcoming.forEach { (label, n) -> Tag("$n before $label", Pastel.InkMuted) }
+                            }
+                        }
                     }
                     if (a.debarStatus.isNotBlank() && a.debarStatus != "-") {
                         Spacer(Modifier.height(6.dp))
@@ -185,15 +218,15 @@ private fun PlannerSheet(a: AttendanceRecord, snap: Snapshot, now: LocalDateTime
                     }
                     if (dates.isNotEmpty()) {
                         Row(Modifier.padding(top = 16.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { missed.clear() }) { Text("Attend all") }
-                            OutlinedButton(onClick = { missed.clear(); missed.addAll(dates.indices) }) { Text("Miss all") }
+                            com.shreenipane.orbit.ui.components.BrutalButton("Attend all", { missed.clear() }, fill = Pastel.Green)
+                            com.shreenipane.orbit.ui.components.BrutalButton("Miss all", { missed.clear(); missed.addAll(dates.indices) }, fill = Pastel.Salmon)
                         }
                     }
                 }
             }
             if (cal != null && dates.isEmpty()) {
                 item {
-                    Text("No classes of this course left in the calendar.", style = MaterialTheme.typography.bodyMedium,
+                    Text("No classes left.", style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(24.dp))
                 }
             }

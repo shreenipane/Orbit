@@ -119,6 +119,25 @@ private fun CourseCard(m: CourseMarks) {
                     Text(fmt(c.weighted), fontWeight = FontWeight.SemiBold)
                 }
             }
+            com.shreenipane.orbit.core.calc.FatNeeded.of(m)?.let { f ->
+                Spacer(Modifier.height(10.dp))
+                Text("In FAT (out of 100) you need", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    f.lines.joinToString("  ·  ") { l ->
+                        "${l.target}: " + when {
+                            !l.possible -> "out of reach"
+                            l.neededOutOf100 == 0 -> "done"
+                            else -> "${l.neededOutOf100}"
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Grading is relative, so treat these as rough targets.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         } else {
             Text("Tap for details", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 8.dp))

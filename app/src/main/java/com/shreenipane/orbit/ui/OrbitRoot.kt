@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shreenipane.orbit.core.model.Snapshot
 import com.shreenipane.orbit.data.Notifier
@@ -123,14 +124,18 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             Column {
-                HorizontalDivider(thickness = 2.dp, color = com.shreenipane.orbit.ui.theme.Pastel.Ink)
+                HorizontalDivider(thickness = 2.dp, color = com.shreenipane.orbit.ui.theme.Pastel.Line)
+                val navLabelSize = with(androidx.compose.ui.platform.LocalDensity.current) { 11.dp.toSp() }
                 NavigationBar(containerColor = com.shreenipane.orbit.ui.theme.Pastel.CardTeal, tonalElevation = 0.dp) {
                     Tab.entries.forEachIndexed { i, t ->
                         NavigationBarItem(
                             selected = tab == i,
                             onClick = { if (tab == i && t == Tab.More) more = null; tab = i },
                             icon = { Icon(t.icon, contentDescription = null) },
-                            label = { Text(t.label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) },
+                            // Five tabs share ~80dp each. Sized in dp, not sp, so a large system font
+                            // size can't push "Attendance" past its slot (it got cut off).
+                            label = { Text(t.label, maxLines = 1, softWrap = false,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = navLabelSize, letterSpacing = 0.sp)) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
                                 selectedTextColor = com.shreenipane.orbit.ui.theme.Pastel.Ink,
@@ -153,9 +158,12 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
             Box(Modifier.weight(1f)) {
                 when (Tab.entries[tab]) {
                     Tab.Home -> HomeScreen(snap, state.reminders, state.settings.alias, state.refreshing, refresh,
-                        onOpen = { tab = Tab.More.ordinal; more = it.name })
-                    Tab.Timetable -> TimetableScreen(snap, state.refreshing, refresh)
-                    Tab.Attendance -> AttendanceScreen(snap, state.refreshing, refresh)
+                        onOpen = { tab = Tab.More.ordinal; more = it.name },
+                        overrides = state.overrides, onToggleCancel = vm::toggleCancelled, onRemoveOverride = vm::removeOverride)
+                    Tab.Timetable -> TimetableScreen(snap, state.refreshing, refresh,
+                        overrides = state.overrides, onToggleCancel = vm::toggleCancelled,
+                        onAddOverride = vm::addOverride, onRemoveOverride = vm::removeOverride)
+                    Tab.Attendance -> AttendanceScreen(snap, state.refreshing, refresh, overrides = state.overrides)
                     Tab.Marks -> MarksScreen(snap, state.refreshing, refresh)
                     Tab.More -> MoreScreen(
                         destination = moreDest,

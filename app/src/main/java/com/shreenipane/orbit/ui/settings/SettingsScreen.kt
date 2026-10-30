@@ -1,5 +1,7 @@
 package com.shreenipane.orbit.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,6 +33,9 @@ import com.shreenipane.orbit.ui.components.OrbitScreen
 import com.shreenipane.orbit.ui.components.RowDivider
 import com.shreenipane.orbit.ui.components.section
 import com.shreenipane.orbit.ui.theme.Bad
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val CLASS_GROUPS = listOf(null to "Automatic (General Flexible)", "General (Flexible)" to "General (Flexible)", "General (Semester)" to "General (Semester)")
 
@@ -42,9 +48,34 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
     var confirmRemoveLogin by remember { mutableStateOf(false) }
     var semMenu by remember { mutableStateOf(false) }
     var groupMenu by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    fun toast(msg: String) = android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+
+    val saveBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = runCatching {
+                val text = vm.backupJson()
+                withContext(Dispatchers.IO) {
+                    ctx.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) } ?: error("no stream")
+                }
+            }.isSuccess
+            toast(if (ok) "Backup saved" else "Couldn't save the backup")
+        }
+    }
+    val openBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = runCatching {
+                withContext(Dispatchers.IO) { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }
+            }.getOrNull()
+            if (text.isNullOrBlank()) toast("Couldn't read that file") else vm.restore(text)
+        }
+    }
 
     OrbitScreen(title = "Settings") {
-        section(header = "Profile", footer = "${snap?.regNo.orEmpty()} · ${state.campus.label}. Your name is used in greetings and shared timetables.") {
+        section(header = "Profile", footer = "${snap?.regNo.orEmpty()} · ${state.campus.label}") {
             TextField(
                 value = alias,
                 onValueChange = { alias = it.take(24); vm.updateSettings { st -> st.copy(alias = alias) } },
@@ -59,7 +90,16 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             )
         }
 
-        section(header = "Academics", footer = "Classes-left counts read B.Tech entries in this class group's academic calendar.") {
+        section(header = "Appearance") {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                com.shreenipane.orbit.ui.components.Segmented(
+                    listOf("System", "Light", "Dark"), s.themeMode.coerceIn(0, 2),
+                    { i -> vm.updateSettings { it.copy(themeMode = i) } },
+                )
+            }
+        }
+
+        section(header = "Academics", footer = null) {
             Box {
                 ListRow("Semester", snap?.semester?.name ?: "Not picked", chevron = true, onClick = { semMenu = true })
                 DropdownMenu(expanded = semMenu, onDismissRequest = { semMenu = false }) {
@@ -90,7 +130,7 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
 
         section(
             header = "Security",
-            footer = "The locker keeps your VTOP login encrypted (AES-256-GCM) with a key held in Android Keystore that only your fingerprint can unlock. It stays until you sign out.",
+            footer = "Your login is encrypted and unlocked only by your fingerprint.",
         ) {
             Toggle(
                 "App lock",
@@ -126,20 +166,55 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             RowDivider()
             Toggle(
                 "Stay signed in",
-                "Touches your VTOP session every 15 min so it doesn't time out. VTOP can still end it (e.g. if you sign in on another device).",
+                "Keeps your VTOP session from timing out",
                 s.keepSignedIn,
             ) { v -> vm.updateSettings { it.copy(keepSignedIn = v) } }
             RowDivider()
-            Toggle("Background sync", "Every 6 h while your VTOP session lasts: new marks, absences, DAs", s.backgroundSync) { v ->
+            Toggle("Background sync", "New marks, absences and DAs every 6 h", s.backgroundSync) { v ->
                 vm.updateSettings { it.copy(backgroundSync = v) }
+            }
+            RowDivider()
+            Toggle("Weekly report", "Sunday evening: classes attended and how each subject moved", s.weeklyReport) { v ->
+                vm.updateSettings { it.copy(weeklyReport = v) }
+            }
+            RowDivider()
+            Toggle("Fee reminders", "Two days before a fee is due, and on the day", s.feeReminders) { v ->
+                vm.updateSettings { it.copy(feeReminders = v) }
             }
         }
 
         section(
-            header = "Help",
-            footer = "The report has the last pages Orbit received from VTOP (DAs, calendar, uploads), with your registration number masked. Send it when a screen is empty or wrong.",
+            header = "Your data",
+            footer = null,
         ) {
-            val ctx = androidx.compose.ui.platform.LocalContext.current
+            ListRow("Export to calendar", "Google Calendar, Outlook… (.ics)", chevron = true, onClick = {
+                scope.launch {
+                    val file = vm.icsFile()
+                    if (file == null) { toast("Sync once first"); return@launch }
+                    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("text/calendar")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Add to calendar")) }
+                        .onFailure { toast("No app can open calendar files") }
+                }
+            })
+            RowDivider()
+            ListRow("Back up", "Save a file you can restore later", chevron = true, onClick = {
+                runCatching { saveBackup.launch("orbit-backup-${java.time.LocalDate.now()}.json") }.onFailure { toast("No file picker on this phone") }
+            })
+            RowDivider()
+            ListRow("Restore", "Merge a backup file into this phone", chevron = true, onClick = {
+                runCatching { openBackup.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
+                    .onFailure { toast("No file picker on this phone") }
+            })
+        }
+
+        section(
+            header = "Help",
+            footer = "Send this if a screen is empty or wrong.",
+        ) {
             ListRow("Send debug report", "Share what VTOP returned, so parsing can be fixed", chevron = true, onClick = {
                 val file = vm.debugReport()
                 val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
@@ -155,7 +230,7 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             })
         }
 
-        section(footer = "Reminders and friends stay on this phone. Orbit is unofficial and not affiliated with VIT.") {
+        section(footer = "Orbit is unofficial and not affiliated with VIT.") {
             ListRow("Sign out", "Clears VTOP data and the saved login", titleColor = Bad, onClick = { confirmSignOut = true })
         }
     }
@@ -164,7 +239,7 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
         AlertDialog(
             onDismissRequest = { confirmSignOut = false },
             title = { Text("Sign out?") },
-            text = { Text("This removes your VTOP data and the saved fingerprint login from this phone.") },
+            text = { Text("Removes your VTOP data and saved login from this phone.") },
             confirmButton = { TextButton(onClick = { confirmSignOut = false; vm.signOut() }) { Text("Sign out", color = Bad) } },
             dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
         )

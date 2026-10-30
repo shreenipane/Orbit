@@ -115,7 +115,7 @@ fun LoginScreen(
     fun unlockWithFingerprint() {
         val cipher = vault.decryptCipher()
         if (cipher == null) {
-            error = "Your saved login was reset because the phone's fingerprints changed. Sign in once more to save it again."
+            error = "Fingerprints changed, so sign in once more to save your login."
             onLockerChanged()
             return
         }
@@ -158,7 +158,7 @@ fun LoginScreen(
             icon = { Icon(Icons.Rounded.Fingerprint, null) },
             title = { Text("Save login to the locker?") },
             text = {
-                Text("Next time: fingerprint, then just the captcha. Your password is encrypted on this phone with a key only your fingerprint can unlock, and stays until you sign out.")
+                Text("Next time it's just your fingerprint and the captcha.")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -244,7 +244,7 @@ fun LoginScreen(
         }
         Spacer(Modifier.height(24.dp))
         Text(
-            "Your password only ever goes to VTOP. You type VTOP's captcha yourself; Orbit handles everything else.",
+            "Your password only goes to VTOP.",
             style = MaterialTheme.typography.bodySmall,
             color = Pastel.InkMuted,
         )

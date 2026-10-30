@@ -40,11 +40,35 @@ data class ClassSession(
     val isLab: Boolean get() = slot.startsWith("L")
 }
 
+/** Where a slot sits on the weekly grid, e.g. A1 → Mon 08:00–08:50. Read from the timetable page. */
+@Serializable
+data class SlotTime(val slot: String, val day: Int, val start: String, val end: String)
+
 @Serializable
 data class Timetable(
     val courses: List<RegisteredCourse> = emptyList(),
     val sessions: List<ClassSession> = emptyList(),
+    /** Every slot on the grid, filled or not; the FFCS planner uses it. */
+    val slotGrid: List<SlotTime> = emptyList(),
 )
+
+/** A change to one class on one date: cancelled, or an extra class added. Stored locally. */
+@Serializable
+data class ClassOverride(
+    val id: Long,
+    /** ISO date. */
+    val date: String,
+    val kind: OverrideKind,
+    val courseCode: String,
+    val courseTitle: String,
+    val isLab: Boolean,
+    val start: String,
+    val end: String,
+    val venue: String = "",
+)
+
+@Serializable
+enum class OverrideKind { CANCELLED, EXTRA }
 
 @Serializable
 data class AttendanceRecord(
@@ -95,6 +119,8 @@ data class GradedCourse(
     val credits: Double,
     val grade: String,
     val examMonth: String,
+    /** Curriculum bucket, e.g. UC, PC, PE, UE / OE. */
+    val distribution: String = "",
 )
 
 @Serializable
@@ -103,7 +129,13 @@ data class GradeHistory(
     val creditsEarned: Double?,
     val cgpa: Double?,
     val courses: List<GradedCourse> = emptyList(),
+    /** Curriculum requirements per category, when VTOP's grade history lists them. */
+    val requirements: List<CreditNeed> = emptyList(),
 )
+
+/** One curriculum category (e.g. "Discipline Elective"): credits required vs earned. */
+@Serializable
+data class CreditNeed(val name: String, val required: Double, val earned: Double)
 
 @Serializable
 data class Exam(
@@ -214,3 +246,53 @@ data class Friend(
     val sessions: List<ClassSession>,
     val importedAtMillis: Long,
 )
+
+// ---------- campus pages (fetched on demand) ----------
+
+@Serializable
+data class Announcement(val category: String, val text: String, val link: String? = null)
+
+@Serializable
+data class KeyValue(val key: String, val value: String)
+
+@Serializable
+data class Faculty(val name: String, val designation: String, val school: String, val empId: String)
+
+@Serializable
+data class PendingPayment(val reference: String, val head: String, val dueDate: String, val amount: String, val fine: String, val total: String)
+
+@Serializable
+data class Receipt(val number: String, val date: String, val amount: String)
+
+@Serializable
+data class BiometricEntry(val date: String, val time: String, val location: String)
+
+/** One course of a semester's published results. */
+@Serializable
+data class GradeResult(
+    val code: String, val title: String, val type: String, val total: String, val grade: String,
+    /** VTOP's id for the course's detail view (grade ranges, class mean). */
+    val courseId: String = "",
+)
+
+/** One grade's mark range in a course, e.g. S → "81 and above". */
+@Serializable
+data class GradeRange(val grade: String, val range: String)
+
+/** How the class did in a course: size, mean, SD and where each grade started. */
+@Serializable
+data class GradeStats(val classStrength: String, val mean: String, val sd: String, val ranges: List<GradeRange>)
+
+@Serializable
+data class CampusInfo(
+    val announcements: List<Announcement> = emptyList(),
+    val proctor: List<KeyValue> = emptyList(),
+    val hodDean: List<KeyValue> = emptyList(),
+    val pending: List<PendingPayment> = emptyList(),
+    val receipts: List<Receipt> = emptyList(),
+    val fetchedAtMillis: Long = 0,
+)
+
+/** A course added to the FFCS planner: a slot combination like "A1+TA1" or "L31+L32". */
+@Serializable
+data class PlannedCourse(val id: Long, val title: String, val slots: String, val credits: Double = 0.0)

@@ -2,6 +2,7 @@ package com.shreenipane.orbit.core.calc
 
 import com.shreenipane.orbit.core.model.AcademicCalendar
 import com.shreenipane.orbit.core.model.AttendanceRecord
+import com.shreenipane.orbit.core.model.ClassOverride
 import com.shreenipane.orbit.core.model.ClassSession
 import com.shreenipane.orbit.core.model.DayKind
 import com.shreenipane.orbit.core.model.Exam
@@ -77,6 +78,7 @@ object ExamPlanner {
     fun classesBetween(
         cal: AcademicCalendar, sessions: List<ClassSession>,
         today: LocalDate, nowMinute: Int, until: LocalDate,
+        overrides: List<ClassOverride> = emptyList(),
     ): Pair<Int, List<CourseLeft>> {
         val counts = linkedMapOf<String, Int>()
         val titles = sessions.associate { courseKey(it.courseCode, it.isLab) to it.courseTitle }
@@ -90,7 +92,11 @@ object ExamPlanner {
             val weekday = d.dayOrder ?: date.dayOfWeek.value
             sessions.filter { it.day == weekday }
                 .filter { date != today || minutes(it.start) > nowMinute }
+                .filterNot { s -> Overrides.isCancelled(overrides, date, s) }
                 .forEach { s -> counts.merge(courseKey(s.courseCode, s.isLab), 1, Int::plus) }
+        }
+        Overrides.extrasBetween(overrides, today, nowMinute, until).forEach { o ->
+            counts.merge(courseKey(o.courseCode, o.isLab), 1, Int::plus)
         }
         val courses = counts.map { (k, n) ->
             CourseLeft(k.substringBefore('#'), titles[k] ?: k.substringBefore('#'), k.endsWith("#L"), n)
@@ -101,14 +107,14 @@ object ExamPlanner {
     /** One countdown per upcoming exam, soonest first. Needs the academic calendar. */
     fun countdowns(
         cal: AcademicCalendar?, schedule: List<Exam>, sessions: List<ClassSession>,
-        today: LocalDate, nowMinute: Int,
+        today: LocalDate, nowMinute: Int, overrides: List<ClassOverride> = emptyList(),
     ): List<Countdown> {
         if (cal == null) return emptyList()
         val starts = examStarts(cal, schedule)
         return EXAMS.mapNotNull { (key, label) ->
             val start = starts[key] ?: return@mapNotNull null
             if (start.isBefore(today)) return@mapNotNull null
-            val (days, courses) = classesBetween(cal, sessions, today, nowMinute, start)
+            val (days, courses) = classesBetween(cal, sessions, today, nowMinute, start, overrides)
             Countdown(key, label, start, ChronoUnit.DAYS.between(today, start), days, courses)
         }
     }
@@ -129,7 +135,7 @@ object ExamPlanner {
      */
     fun matrix(
         cal: AcademicCalendar?, schedule: List<Exam>, sessions: List<ClassSession>,
-        today: LocalDate, nowMinute: Int,
+        today: LocalDate, nowMinute: Int, overrides: List<ClassOverride> = emptyList(),
     ): Matrix? {
         if (cal == null) return null
         val starts = examStarts(cal, schedule)
@@ -137,7 +143,7 @@ object ExamPlanner {
         if (exams.isEmpty()) return null
         val perExam = exams.associate { (key, start) ->
             key to if (start.isBefore(today) || start == today) null
-            else classesBetween(cal, sessions, today, nowMinute, start).second
+            else classesBetween(cal, sessions, today, nowMinute, start, overrides).second
         }
         val keys = sessions.map { it.courseCode to it.isLab }.distinct()
         val titles = sessions.associate { (it.courseCode to it.isLab) to it.courseTitle }
@@ -169,6 +175,7 @@ object ExamPlanner {
     fun classDates(
         cal: AcademicCalendar, sessions: List<ClassSession>, courseCode: String, isLab: Boolean,
         today: LocalDate, nowMinute: Int, until: LocalDate? = semesterEnd(cal),
+        overrides: List<ClassOverride> = emptyList(),
     ): List<ClassDate> {
         val mine = sessions.filter { it.courseCode == courseCode && it.isLab == isLab }
         if (mine.isEmpty() || until == null) return emptyList()
@@ -181,16 +188,23 @@ object ExamPlanner {
             mine.filter { it.day == weekday }
                 .filter { date != today || minutes(it.start) > nowMinute }
                 .sortedBy { minutes(it.start) }
+                .filterNot { s -> Overrides.isCancelled(overrides, date, s) }
                 .forEach { out += ClassDate(date, it, d.dayOrder?.takeIf { o -> o != date.dayOfWeek.value }) }
         }
-        return out
+        Overrides.extrasBetween(overrides, today, nowMinute, until)
+            .filter { it.courseCode == courseCode && it.isLab == isLab }
+            .forEach { o -> out += ClassDate(LocalDate.parse(o.date), Overrides.asSession(o), null) }
+        return out.sortedWith(compareBy({ it.date }, { minutes(it.session.start) }))
     }
 
     /** Classes left this semester for every course, in one pass. Key: courseKey(code, isLab). */
-    fun remainingAll(cal: AcademicCalendar?, sessions: List<ClassSession>, today: LocalDate, nowMinute: Int): Map<String, Int>? {
+    fun remainingAll(
+        cal: AcademicCalendar?, sessions: List<ClassSession>, today: LocalDate, nowMinute: Int,
+        overrides: List<ClassOverride> = emptyList(),
+    ): Map<String, Int>? {
         if (cal == null) return null
         val end = semesterEnd(cal) ?: return null
-        val (_, courses) = classesBetween(cal, sessions, today, nowMinute, end)
+        val (_, courses) = classesBetween(cal, sessions, today, nowMinute, end, overrides)
         return courses.associate { courseKey(it.courseCode, it.isLab) to it.classes }
     }
 

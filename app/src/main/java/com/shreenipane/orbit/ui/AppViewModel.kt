@@ -9,7 +9,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.shreenipane.orbit.core.ShareCode
+import com.shreenipane.orbit.core.model.CampusInfo
+import com.shreenipane.orbit.core.model.ClassOverride
+import com.shreenipane.orbit.core.model.ClassSession
 import com.shreenipane.orbit.core.model.DigitalAssignment
+import com.shreenipane.orbit.core.model.OverrideKind
+import com.shreenipane.orbit.core.model.PlannedCourse
 import com.shreenipane.orbit.core.model.Friend
 import com.shreenipane.orbit.core.parse.CalendarParsers
 import com.shreenipane.orbit.core.model.Reminder
@@ -18,6 +23,7 @@ import com.shreenipane.orbit.data.AppSettings
 import com.shreenipane.orbit.data.Campus
 import com.shreenipane.orbit.data.Repository
 import com.shreenipane.orbit.data.SessionExpiredException
+import com.shreenipane.orbit.widget.OrbitWidget
 import com.shreenipane.orbit.work.Work
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +51,10 @@ data class UiState(
     /** Calendar class group the user chose; null = automatic (General (Flexible)). */
     val classGroup: String? = null,
     val daUpload: DaUpload = DaUpload.Idle,
+    val overrides: List<ClassOverride> = emptyList(),
+    val planner: List<PlannedCourse> = emptyList(),
+    val campusInfo: CampusInfo? = null,
+    val campusLoading: Boolean = false,
 )
 
 /** Progress of a DA upload, shown in the DA sheet. */
@@ -69,6 +79,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                 it.copy(
                     loading = false, snapshot = cached, showLogin = cached == null,
                     reminders = repo.reminders(), friends = repo.friends(),
+                    overrides = repo.overrides(), planner = repo.planner(), campusInfo = repo.campusInfo(),
                 )
             }
             if (cached != null) refresh(silent = true)
@@ -109,7 +120,8 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
             try {
                 val snap = repo.refresh(semesterId)
                 _state.update { it.copy(snapshot = snap, refreshing = false, sessionExpired = false) }
-                Work.planAlerts(app, snap, repo.settings)
+                Work.planAlerts(app, snap, repo.settings, _state.value.overrides, _state.value.campusInfo)
+                OrbitWidget.update(app, snap, _state.value.overrides)
             } catch (e: SessionExpiredException) {
                 _state.update {
                     it.copy(refreshing = false, sessionExpired = true, showLogin = it.snapshot == null)
@@ -162,9 +174,10 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
         repo.settings = next
         _state.update { it.copy(settings = next) }
         if (next.backgroundSync != prev.backgroundSync || next.keepSignedIn != prev.keepSignedIn) Work.ensurePeriodic(app, next)
+        if (next.weeklyReport != prev.weeklyReport) Work.ensurePeriodic(app, next)
         if (next.classAlerts != prev.classAlerts || next.classAlertLeadMinutes != prev.classAlertLeadMinutes ||
-            next.examAlerts != prev.examAlerts
-        ) Work.planAlerts(app, _state.value.snapshot, next)
+            next.examAlerts != prev.examAlerts || next.feeReminders != prev.feeReminders
+        ) Work.planAlerts(app, _state.value.snapshot, next, _state.value.overrides, _state.value.campusInfo)
     }
 
     // ---------- reminders & assignments ----------
@@ -246,6 +259,97 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
             CalendarParsers.UploadResult.Success -> { setUpload(DaUpload.Done("$title uploaded.")); refresh(silent = true) }
             CalendarParsers.UploadResult.OtpRequired -> setUpload(DaUpload.NeedOtp(title))
             is CalendarParsers.UploadResult.Failed -> setUpload(DaUpload.Failed(r.message))
+        }
+    }
+
+    // ---------- class overrides (cancelled / extra) ----------
+
+    fun addOverride(o: ClassOverride) = editOverrides { list -> list.filterNot { it.id == o.id } + o }
+
+    fun removeOverride(o: ClassOverride) = editOverrides { list -> list.filterNot { it.id == o.id } }
+
+    /** Toggles "cancelled" for one class on one date. */
+    fun toggleCancelled(date: java.time.LocalDate, s: ClassSession) {
+        val existing = _state.value.overrides.firstOrNull {
+            it.kind == OverrideKind.CANCELLED && it.date == date.toString() && it.courseCode == s.courseCode &&
+                it.isLab == s.isLab && it.start == s.start
+        }
+        if (existing != null) removeOverride(existing)
+        else addOverride(ClassOverride(System.currentTimeMillis(), date.toString(), OverrideKind.CANCELLED,
+            s.courseCode, s.courseTitle, s.isLab, s.start, s.end, s.venue))
+    }
+
+    private fun editOverrides(edit: (List<ClassOverride>) -> List<ClassOverride>) {
+        val today = java.time.LocalDate.now().minusDays(30).toString()
+        val next = edit(_state.value.overrides).filter { it.date >= today }.sortedBy { it.date + it.start }
+        _state.update { it.copy(overrides = next) }
+        viewModelScope.launch {
+            repo.saveOverrides(next)
+            Work.planAlerts(app, _state.value.snapshot, repo.settings, next, _state.value.campusInfo)
+            OrbitWidget.update(app, _state.value.snapshot, next)
+        }
+    }
+
+    // ---------- FFCS planner ----------
+
+    fun upsertPlanned(c: PlannedCourse) = editPlanner { list -> list.filterNot { it.id == c.id } + c }
+    fun removePlanned(c: PlannedCourse) = editPlanner { list -> list.filterNot { it.id == c.id } }
+    private fun editPlanner(edit: (List<PlannedCourse>) -> List<PlannedCourse>) {
+        val next = edit(_state.value.planner)
+        _state.update { it.copy(planner = next) }
+        viewModelScope.launch { repo.savePlanner(next) }
+    }
+
+    // ---------- campus pages ----------
+
+    private fun sessionEnded(e: Exception): Boolean {
+        if (e is SessionExpiredException) { _state.update { it.copy(sessionExpired = true) }; return true }
+        return false
+    }
+
+    fun refreshCampus() {
+        if (_state.value.campusLoading) return
+        viewModelScope.launch {
+            _state.update { it.copy(campusLoading = true) }
+            try {
+                val c = repo.refreshCampus()
+                _state.update { it.copy(campusInfo = c, campusLoading = false) }
+                Work.planAlerts(app, _state.value.snapshot, repo.settings, _state.value.overrides, c)
+            } catch (e: Exception) {
+                sessionEnded(e)
+                _state.update { it.copy(campusLoading = false, message = if (e is SessionExpiredException) null else e.message) }
+            }
+        }
+    }
+
+    /** Runs a one-off VTOP lookup; failures come back as a message instead of throwing. */
+    suspend fun <T> lookup(block: suspend Repository.() -> T): kotlin.Result<T> = try {
+        kotlin.Result.success(repo.block())
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        sessionEnded(e)
+        kotlin.Result.failure(if (e is SessionExpiredException) Exception("VTOP session ended. Sign in and try again.") else e)
+    }
+
+    // ---------- export & backup ----------
+
+    suspend fun icsFile(): java.io.File? = repo.icsFile()
+    suspend fun backupJson(): String = repo.backupJson()
+
+    fun restore(text: String) {
+        viewModelScope.launch {
+            try {
+                val b = repo.restore(text)
+                _state.update {
+                    it.copy(reminders = repo.reminders(), friends = repo.friends(), overrides = repo.overrides(),
+                        planner = repo.planner(), settings = repo.settings,
+                        message = "Restored ${b.reminders.size} reminders, ${b.friends.size} friends, ${b.planner.size} planned courses.")
+                }
+                repo.reminders().forEach { Work.scheduleReminder(app, it) }
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "That doesn't look like an Orbit backup.") }
+            }
         }
     }
 

@@ -111,7 +111,7 @@ fun RemindersScreen(
         OrbitScreen(title = "Deadlines", subtitle = snap.semester?.name, bottomPadding = 96.dp) {
             section(
                 header = "Digital assignments",
-                footer = snap.warnings.firstOrNull { it.startsWith("Digital assignments") }?.let { "Couldn't load DAs · $it. Pull to refresh on Today; if it keeps happening, send the debug report from Settings." }
+                footer = snap.warnings.firstOrNull { it.startsWith("Digital assignments") }?.let { "Couldn't load DAs. Pull to refresh on Today." }
                     ?: if (snap.assignments.isEmpty()) "No DAs on VTOP for this semester yet." else
                     "${daDone.size} submitted · ${daOpen.size} open" + if (daMissed.isNotEmpty()) " · ${daMissed.size} past due" else "",
             ) {
@@ -367,7 +367,7 @@ private fun DaSheet(
                     Text("PDF, Word or Excel, up to 4 MB.", style = MaterialTheme.typography.bodySmall,
                         color = com.shreenipane.orbit.ui.theme.Pastel.InkMuted, modifier = Modifier.padding(top = 8.dp))
                 } else {
-                    Text("VTOP isn't accepting uploads for this DA right now (the deadline may have passed, or the faculty hasn't opened it).",
+                    Text("VTOP isn't taking uploads for this DA right now.",
                         style = MaterialTheme.typography.bodySmall, color = com.shreenipane.orbit.ui.theme.Pastel.InkMuted)
                 }
             }

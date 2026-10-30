@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Orbit</string>
+    <string name="widget_description">Your current or next class, attendance and next deadline</string>
 </resources>

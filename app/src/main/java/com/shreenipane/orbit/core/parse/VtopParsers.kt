@@ -4,11 +4,13 @@ import com.shreenipane.orbit.core.model.AttendanceRecord
 import com.shreenipane.orbit.core.model.ClassSession
 import com.shreenipane.orbit.core.model.CourseMarks
 import com.shreenipane.orbit.core.model.Exam
+import com.shreenipane.orbit.core.model.CreditNeed
 import com.shreenipane.orbit.core.model.GradeHistory
 import com.shreenipane.orbit.core.model.GradedCourse
 import com.shreenipane.orbit.core.model.MarkComponent
 import com.shreenipane.orbit.core.model.RegisteredCourse
 import com.shreenipane.orbit.core.model.Semester
+import com.shreenipane.orbit.core.model.SlotTime
 import com.shreenipane.orbit.core.model.Timetable
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -63,14 +65,15 @@ object VtopParsers {
     fun timetable(html: String): Timetable {
         val doc = Jsoup.parse(html)
         val courses = registeredCourses(doc)
-        val raw = gridSessions(doc)
+        val grid = mutableListOf<SlotTime>()
+        val raw = gridSessions(doc, grid)
         val merged = mergeAdjacent(raw)
         val withTitles = merged.map { s ->
             val candidates = courses.filter { it.code == s.courseCode }
             val match = candidates.firstOrNull { it.isLab == s.isLab } ?: candidates.firstOrNull()
             s.copy(courseTitle = match?.title ?: s.courseCode)
         }
-        return Timetable(courses = courses, sessions = withTitles)
+        return Timetable(courses = courses, sessions = withTitles, slotGrid = grid.distinct())
     }
 
     private fun normTime(t: String): String? {
@@ -78,7 +81,9 @@ object VtopParsers {
         return m.groupValues[1].padStart(2, '0') + ":" + m.groupValues[2]
     }
 
-    private fun gridSessions(doc: Document): List<ClassSession> {
+    private val SLOT_NAME = Regex("^([A-Z]{1,4}\\d{1,2})(?:-|$)")
+
+    private fun gridSessions(doc: Document, grid: MutableList<SlotTime>): List<ClassSession> {
         val table = doc.getElementById("timeTableStyle") ?: return emptyList()
         val rows = table.select("tr").map { tr -> tr.select("> td, > th").map { it.text().trim() } }
 
@@ -90,6 +95,11 @@ object VtopParsers {
 
         fun emit(day: Int, cells: List<String>, starts: List<String>, ends: List<String>) {
             cells.forEachIndexed { i, cell ->
+                SLOT_NAME.find(cell)?.let { m ->
+                    val st = starts.getOrNull(i)?.let(::normTime)
+                    val en = ends.getOrNull(i)?.let(::normTime)
+                    if (st != null && en != null) grid += SlotTime(m.groupValues[1], day, st, en)
+                }
                 val m = GRID_CELL.find(cell) ?: return@forEachIndexed
                 val start = starts.getOrNull(i)?.let(::normTime) ?: return@forEachIndexed
                 val end = ends.getOrNull(i)?.let(::normTime) ?: return@forEachIndexed
@@ -324,6 +334,7 @@ object VtopParsers {
             val iCredits = h.indexOfFirst { it.equals("Credits", true) }
             val iGrade = h.indexOfFirst { it.equals("Grade", true) }
             val iMonth = h.indexOfFirst { it.equals("Exam Month", true) }
+            val iDist = h.indexOfFirst { it.contains("Distribution", true) }
             for (tr in table.select("tr")) {
                 if (tr.parents().any { it.hasClass("customTable-level1") }) continue
                 val c = tr.select("> td").map { it.text().trim() }
@@ -337,9 +348,40 @@ object VtopParsers {
                     credits = num(c.getOrNull(iCredits)) ?: 0.0,
                     grade = c.getOrNull(iGrade).orEmpty(),
                     examMonth = c.getOrNull(iMonth).orEmpty(),
+                    distribution = c.getOrNull(iDist).orEmpty(),
                 )
             }
         }
-        return GradeHistory(registered, earned, cgpa, courses)
+        return GradeHistory(registered, earned, cgpa, courses, creditNeeds(doc))
+    }
+
+    /**
+     * The curriculum summary some VTOP builds put under the grade history:
+     * a table with "Credits Required" and "Credits Earned" per category.
+     * Empty when the page doesn't have one.
+     */
+    internal fun creditNeeds(doc: Document): List<CreditNeed> {
+        for (t in doc.select("table")) {
+            val rows = t.select("tr")
+            val hi = rows.indexOfFirst { r ->
+                val x = r.text().lowercase()
+                x.contains("required") && (x.contains("earned") || x.contains("completed") || x.contains("obtained"))
+            }
+            if (hi < 0) continue
+            val h = rows[hi].select("> th, > td").map { it.text().trim().lowercase() }
+            val iReq = h.indexOfFirst { it.contains("required") }
+            val iEarn = h.indexOfFirst { it.contains("earned") || it.contains("completed") || it.contains("obtained") }
+            val iName = h.indexOfFirst { Regex("type|title|basket|distribution|category|component|description|name").containsMatchIn(it) }
+                .takeIf { it >= 0 } ?: h.indexOfFirst { !it.startsWith("sl") && it != h.getOrNull(iReq) && it != h.getOrNull(iEarn) }
+            if (iReq < 0 || iEarn < 0 || iName < 0) continue
+            val out = rows.drop(hi + 1).mapNotNull { tr ->
+                val c = tr.select("> td").map { it.text().trim() }
+                val name = c.getOrNull(iName)?.takeIf { it.isNotBlank() && !it.equals("total", true) } ?: return@mapNotNull null
+                val req = num(c.getOrNull(iReq)) ?: return@mapNotNull null
+                CreditNeed(name, req, num(c.getOrNull(iEarn)) ?: 0.0)
+            }
+            if (out.isNotEmpty()) return out
+        }
+        return emptyList()
     }
 }

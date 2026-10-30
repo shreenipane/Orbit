@@ -9,11 +9,14 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shreenipane.orbit.ui.AppViewModel
 import com.shreenipane.orbit.ui.LockScreen
@@ -28,20 +31,23 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Always the light pastel theme, so system bar icons are dark.
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
-        )
+        enableEdgeToEdge()
         locked = repo.settings.biometricLock && canUseLock(this)
         setContent {
-            OrbitTheme {
-                if (locked) {
-                    LockScreen(onUnlock = ::promptUnlock)
-                } else {
-                    val vm: AppViewModel = viewModel(factory = AppViewModel.factory(application, repo))
-                    OrbitRoot(vm, canUseLock = canUseLock(this))
-                }
+            val vm: AppViewModel = viewModel(factory = AppViewModel.factory(application, repo))
+            val st by vm.state.collectAsStateWithLifecycle()
+            val dark = when (st.settings.themeMode) {
+                1 -> false
+                2 -> true
+                else -> isSystemInDarkTheme()
+            }
+            LaunchedEffect(dark) {
+                val t = android.graphics.Color.TRANSPARENT
+                val style = if (dark) SystemBarStyle.dark(t) else SystemBarStyle.light(t, t)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            OrbitTheme(dark) {
+                if (locked) LockScreen(onUnlock = ::promptUnlock) else OrbitRoot(vm, canUseLock = canUseLock(this))
             }
         }
         if (locked) promptUnlock()
