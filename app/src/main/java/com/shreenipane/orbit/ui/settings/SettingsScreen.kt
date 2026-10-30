@@ -123,6 +123,10 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
                     )
                 }
             }
+            RowDivider()
+            Toggle("Haptic feedback", "A light tick on buttons, tabs and switches", s.haptics) { v ->
+                vm.updateSettings { it.copy(haptics = v) }
+            }
         }
 
         section(header = "Academics", footer = null) {
@@ -163,6 +167,18 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
                 if (canUseLock) "Ask for fingerprint or screen lock when opening Orbit" else "Set up a screen lock on this phone first",
                 s.biometricLock && canUseLock, enabled = canUseLock,
             ) { v -> vm.updateSettings { it.copy(biometricLock = v) } }
+            if (s.biometricLock && canUseLock) {
+                RowDivider()
+                ListRow("Lock again after", "Time in the background before Orbit asks again")
+                val opts = listOf(0, 1, 5, 15)
+                Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp)) {
+                    com.shreenipane.orbit.ui.components.Segmented(
+                        listOf("Always", "1 min", "5 min", "15 min"),
+                        opts.indexOf(s.lockTimeoutMin).coerceAtLeast(0),
+                        { i -> vm.updateSettings { it.copy(lockTimeoutMin = opts[i]) } },
+                    )
+                }
+            }
             RowDivider()
             val saved = state.savedLogin
             if (saved != null) {
@@ -202,6 +218,10 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
             RowDivider()
             Toggle("Weekly report", "Sunday evening: classes attended and how each subject moved", s.weeklyReport) { v ->
                 vm.updateSettings { it.copy(weeklyReport = v) }
+            }
+            RowDivider()
+            Toggle("Hide details on lock screen", "Marks and attendance only show once you unlock", s.hideOnLockScreen) { v ->
+                vm.updateSettings { it.copy(hideOnLockScreen = v) }
             }
             RowDivider()
             Toggle("Smart alerts", "Monday's week ahead, and a warning when a course nears 75%", s.smartAlerts) { v ->
@@ -285,7 +305,8 @@ fun SettingsScreen(state: UiState, canUseLock: Boolean, vm: AppViewModel) {
 
 @Composable
 private fun Toggle(title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
-    ListRow(title, subtitle, trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) })
+    val tick = com.shreenipane.orbit.ui.components.rememberTick()
+    ListRow(title, subtitle, trailing = { Switch(checked = checked, onCheckedChange = { tick(); onChange(it) }, enabled = enabled) })
 }
 
 /** Reads at most [limit] bytes (InputStream.readNBytes needs API 33). */

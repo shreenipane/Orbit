@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon. Each opens MainActivity with a "dest" extra it checks against a fixed list. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="attendance"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_attendance"
+        android:shortcutShortLabel="@string/shortcut_attendance">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.shreenipane.orbit"
+            android:targetClass="com.shreenipane.orbit.MainActivity">
+            <extra android:name="dest" android:value="attendance" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="bunk"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_bunk"
+        android:shortcutShortLabel="@string/shortcut_bunk">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.shreenipane.orbit"
+            android:targetClass="com.shreenipane.orbit.MainActivity">
+            <extra android:name="dest" android:value="bunk" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="timer"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_timer"
+        android:shortcutShortLabel="@string/shortcut_timer">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.shreenipane.orbit"
+            android:targetClass="com.shreenipane.orbit.MainActivity">
+            <extra android:name="dest" android:value="timer" />
+        </intent>
+    </shortcut>
+</shortcuts>

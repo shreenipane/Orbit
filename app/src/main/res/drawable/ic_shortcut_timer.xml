@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shortcut icon: a Material symbol on Orbit's yellow, sized for launcher shortcuts. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FFEA79" />
+            <size android:width="48dp" android:height="48dp" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/glyph_timer" android:gravity="center" android:width="26dp" android:height="26dp" />
+</layer-list>

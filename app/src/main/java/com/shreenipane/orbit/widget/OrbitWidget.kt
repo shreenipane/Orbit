@@ -49,7 +49,7 @@ class OrbitWidget : AppWidgetProvider() {
             val today = now.toLocalDate()
             val minute = now.hour * 60 + now.minute
             val cal = snap.calendar?.days?.firstOrNull { it.date == today.toString() }
-            val off = cal != null && cal.kind in setOf(DayKind.HOLIDAY, DayKind.NO_INSTRUCTION, DayKind.EXAM)
+            val off = !com.shreenipane.orbit.core.calc.ClassDays.runs(snap.calendar, today)
             val weekday = cal?.dayOrder ?: today.dayOfWeek.value
             val classes = if (off) emptyList() else
                 Overrides.day(snap.timetable.sessions.filter { it.day == weekday }, today, overrides).filterNot { it.cancelled }.map { it.session }

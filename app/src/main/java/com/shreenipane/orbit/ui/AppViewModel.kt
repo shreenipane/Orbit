@@ -54,6 +54,10 @@ data class UiState(
     val planner: List<PlannedCourse> = emptyList(),
     val studyPlan: List<com.shreenipane.orbit.core.model.StudyItem> = emptyList(),
     val studyLog: List<com.shreenipane.orbit.core.model.StudySession> = emptyList(),
+    /** Last refresh couldn't reach VTOP (no network); saved data is showing. */
+    val offline: Boolean = false,
+    /** A screen a home-screen shortcut asked for, until OrbitRoot opens it. */
+    val navRequest: String? = null,
     val notes: List<com.shreenipane.orbit.core.model.CourseNote> = emptyList(),
 )
 
@@ -120,7 +124,7 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
             try {
                 val before = _state.value.snapshot
                 val snap = repo.refresh(semesterId)
-                _state.update { it.copy(snapshot = snap, refreshing = false, sessionExpired = false) }
+                _state.update { it.copy(snapshot = snap, refreshing = false, sessionExpired = false, offline = false) }
                 if (repo.settings.smartAlerts) Work.postAttendanceAlerts(app, before, snap)
                 Work.planAlerts(app, snap, repo.settings, _state.value.overrides)
                 OrbitWidget.update(app, snap, _state.value.overrides)
@@ -129,7 +133,8 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
                     it.copy(refreshing = false, sessionExpired = true, showLogin = it.snapshot == null)
                 }
             } catch (e: IOException) {
-                _state.update { it.copy(refreshing = false, message = if (silent) null else "Couldn't reach VTOP. Showing saved data.") }
+                // The offline banner says this; no snackbar on top of it.
+                _state.update { it.copy(refreshing = false, offline = true) }
             } catch (e: Exception) {
                 _state.update { it.copy(refreshing = false, message = e.message ?: "Something went wrong") }
             }
@@ -137,6 +142,9 @@ class AppViewModel(private val app: Application, private val repo: Repository) :
     }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
+
+    fun requestNav(dest: String) = _state.update { it.copy(navRequest = dest) }
+    fun consumeNav() = _state.update { it.copy(navRequest = null) }
 
     fun signOut() {
         viewModelScope.launch {

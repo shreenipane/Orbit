@@ -80,4 +80,13 @@ class V10Test {
         assertEquals(70, r.classesAttended); assertEquals(80, r.classesHeld)
         assertEquals("CSE2", r.bestAttendance?.title); assertEquals("CSE1", r.worstAttendance?.title)
     }
+
+    @Test fun unmarkedDaysHaveNoClasses() {
+        val D = com.shreenipane.orbit.core.calc.ClassDays
+        assertTrue(D.runs(sat, LocalDate.parse("2026-11-02")))
+        assertTrue(!D.runs(sat, LocalDate.parse("2026-11-09")))      // holiday
+        assertTrue(!D.runs(sat, LocalDate.parse("2026-11-19")))      // not on the calendar at all
+        assertTrue(D.runs(null, LocalDate.parse("2026-11-19")))      // no calendar: follow the timetable
+        assertTrue(BunkPlanner.classesOn(sat, listOf(mon), LocalDate.parse("2026-11-16"), emptyList()).isEmpty())
+    }
 }

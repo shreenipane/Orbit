@@ -100,7 +100,7 @@ fun CalendarScreen(
         item { Legend() }
 
         val cd = byDate[selected.toString()]
-        val dayOff = cd != null && cd.kind in setOf(DayKind.HOLIDAY, DayKind.NO_INSTRUCTION, DayKind.EXAM)
+        val dayOff = !com.shreenipane.orbit.core.calc.ClassDays.runs(snap.calendar, selected)
         val classes = if (dayOff) emptyList()
         else Overrides.day(Schedule.forDay(snap.timetable.sessions, cd?.dayOrder ?: selected.dayOfWeek.value), selected, overrides)
 

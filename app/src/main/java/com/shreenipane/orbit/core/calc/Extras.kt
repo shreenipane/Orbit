@@ -16,6 +16,19 @@ import java.util.zip.Inflater
 
 private fun minutes(hhmm: String) = hhmm.substring(0, 2).toInt() * 60 + hhmm.substring(3, 5).toInt()
 
+/**
+ * Whether classes run on a date. The academic calendar decides when it's
+ * loaded: only days it marks instructional have classes (holidays, exam days
+ * and unmarked days, e.g. after the last instructional day, have none).
+ * Without a calendar, every day follows the weekly timetable.
+ */
+object ClassDays {
+    fun runs(cal: AcademicCalendar?, date: LocalDate): Boolean {
+        if (cal == null) return true
+        return cal.days.firstOrNull { it.date == date.toString() }?.kind == DayKind.INSTRUCTIONAL
+    }
+}
+
 /** "What if I skip these days?" — attendance after missing every class on the chosen dates. */
 object BunkPlanner {
     data class Projection(val record: AttendanceRecord, val missed: Int, val before: Double, val after: Double) {
@@ -25,8 +38,8 @@ object BunkPlanner {
 
     /** Classes that run on [date]: no classes on holidays/exam days, day orders followed, your cancellations dropped. */
     fun classesOn(cal: AcademicCalendar?, sessions: List<ClassSession>, date: LocalDate, overrides: List<ClassOverride>): List<ClassSession> {
+        if (!ClassDays.runs(cal, date)) return emptyList()
         val day = cal?.days?.firstOrNull { it.date == date.toString() }
-        if (day != null && day.kind in setOf(DayKind.HOLIDAY, DayKind.NO_INSTRUCTION, DayKind.EXAM)) return emptyList()
         val weekday = day?.dayOrder ?: date.dayOfWeek.value
         return Overrides.day(Schedule.forDay(sessions, weekday), date, overrides).filterNot { it.cancelled }.map { it.session }
     }

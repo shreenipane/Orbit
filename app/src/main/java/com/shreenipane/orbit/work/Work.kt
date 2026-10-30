@@ -119,7 +119,7 @@ object Work {
             for (date in listOf(today, today.plusDays(1))) {
                 // Respect the academic calendar: no alerts on holidays, and Saturday day orders.
                 val calDay = snap.calendar?.days?.firstOrNull { it.date == date.toString() }
-                if (calDay != null && calDay.kind in setOf(com.shreenipane.orbit.core.model.DayKind.HOLIDAY, com.shreenipane.orbit.core.model.DayKind.NO_INSTRUCTION, com.shreenipane.orbit.core.model.DayKind.EXAM)) continue
+                if (!com.shreenipane.orbit.core.calc.ClassDays.runs(snap.calendar, date)) continue
                 val weekday = calDay?.dayOrder ?: date.dayOfWeek.value
                 com.shreenipane.orbit.core.calc.Overrides.day(snap.timetable.sessions.filter { it.day == weekday }, date, overrides)
                     .filterNot { it.cancelled }.map { it.session }.forEach { s ->

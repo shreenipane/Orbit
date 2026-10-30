@@ -34,6 +34,9 @@ object Notifier {
         ).forEach(nm::createNotificationChannel)
     }
 
+    private fun hideOnLockScreen(context: Context): Boolean =
+        runCatching { (context.applicationContext as com.shreenipane.orbit.OrbitApp).repository.settings.hideOnLockScreen }.getOrDefault(true)
+
     fun canPost(context: Context) =
         Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -45,14 +48,30 @@ object Notifier {
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val n = NotificationCompat.Builder(context, channel)
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_orbit)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(open)
             .setAutoCancel(true)
-            .build()
+        if (hideOnLockScreen(context)) {
+            if (channel == SYNC) {
+                // Marks and attendance: not shown on a locked screen at all; they're there once you unlock.
+                builder.setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            } else {
+                // Class, exam and deadline reminders: shown, but as a plain "Orbit reminder" while locked.
+                builder.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                    .setPublicVersion(
+                        NotificationCompat.Builder(context, channel)
+                            .setSmallIcon(R.drawable.ic_stat_orbit)
+                            .setContentTitle("Orbit")
+                            .setContentText("Reminder · unlock to see")
+                            .build(),
+                    )
+            }
+        }
+        val n = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(id, n)
         } catch (_: SecurityException) {

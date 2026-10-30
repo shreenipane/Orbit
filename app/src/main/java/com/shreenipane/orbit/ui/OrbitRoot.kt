@@ -118,6 +118,15 @@ private fun NotificationPermissionAsk() {
 private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUseLock: Boolean) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var more by rememberSaveable { mutableStateOf<String?>(null) }
+    // Home-screen shortcuts (long-press the app icon) land here.
+    LaunchedEffect(state.navRequest) {
+        when (state.navRequest) {
+            "attendance" -> { more = null; tab = Tab.Attendance.ordinal }
+            "timer" -> { tab = Tab.More.ordinal; more = MoreDestination.Timer.name }
+            "bunk" -> { tab = Tab.More.ordinal; more = MoreDestination.Bunk.name }
+        }
+        if (state.navRequest != null) vm.consumeNav()
+    }
     val moreDest = more?.let { runCatching { MoreDestination.valueOf(it) }.getOrNull() }
     val snackbar = remember { SnackbarHostState() }
 
@@ -141,6 +150,12 @@ private fun MainScaffold(state: UiState, snap: Snapshot, vm: AppViewModel, canUs
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (state.sessionExpired) {
                 Banner("VTOP session ended · showing saved data", "Sign in", vm::requestSignIn)
+            } else if (state.offline) {
+                // How old the data on screen is, e.g. "3 hours ago".
+                val age = android.text.format.DateUtils.getRelativeTimeSpanString(
+                    snap.fetchedAtMillis, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS,
+                ).toString()
+                Banner("Offline · showing data from $age", "Retry") { vm.refresh() }
             }
             val refresh = { vm.refresh() }
             Box(Modifier.weight(1f)) {
@@ -192,6 +207,7 @@ fun LockScreen(onUnlock: () -> Unit) {
 @Composable
 private fun OrbitTabBar(selected: Int, onSelect: (Int) -> Unit) {
     val P = com.shreenipane.orbit.ui.theme.Pastel
+    val tick = com.shreenipane.orbit.ui.components.rememberTick()
     val labelSize = with(androidx.compose.ui.platform.LocalDensity.current) { 11.dp.toSp() }
     Row(
         Modifier.fillMaxWidth().background(P.CardTeal).navigationBarsPadding().height(68.dp),
@@ -201,7 +217,9 @@ private fun OrbitTabBar(selected: Int, onSelect: (Int) -> Unit) {
             val on = i == selected
             Column(
                 Modifier.weight(1f).fillMaxHeight()
-                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { onSelect(i) },
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {
+                        if (i != selected) tick(); onSelect(i)
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {

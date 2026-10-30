@@ -38,6 +38,11 @@ data class AppSettings(
     val accent: Int = 0,
     /** Monday-morning "week ahead" summary and attendance-drop warnings. */
     val smartAlerts: Boolean = true,
+    /** Minutes in the background before the app lock comes back; 0 = every time. */
+    val lockTimeoutMin: Int = 1,
+    /** Keep marks and attendance off the lock screen. */
+    val hideOnLockScreen: Boolean = true,
+    val haptics: Boolean = true,
     /** Credits your curriculum needs per category (code → credits), entered on the CGPA screen. */
     val creditTargets: Map<String, Double> = emptyMap(),
 )
@@ -88,6 +93,9 @@ class Repository(private val context: Context) {
             weeklyReport = prefs.getBoolean("weekly", true),
             accent = prefs.getInt("accent", 0),
             smartAlerts = prefs.getBoolean("smart_alerts", true),
+            lockTimeoutMin = prefs.getInt("lock_timeout", 1),
+            hideOnLockScreen = prefs.getBoolean("lock_privacy", true),
+            haptics = prefs.getBoolean("haptics", true),
             creditTargets = (prefs.getString("credit_targets", "") ?: "").split(';').mapNotNull { e ->
                 val k = e.substringBefore('=', ""); val v = e.substringAfter('=', "").toDoubleOrNull()
                 if (k.isBlank() || v == null) null else k to v
@@ -105,6 +113,9 @@ class Repository(private val context: Context) {
             .putBoolean("weekly", s.weeklyReport)
             .putInt("accent", s.accent)
             .putBoolean("smart_alerts", s.smartAlerts)
+            .putInt("lock_timeout", s.lockTimeoutMin)
+            .putBoolean("lock_privacy", s.hideOnLockScreen)
+            .putBoolean("haptics", s.haptics)
             .putString("credit_targets", s.creditTargets.entries.joinToString(";") { "${it.key}=${it.value}" })
             .apply()
 

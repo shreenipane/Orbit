@@ -75,7 +75,7 @@ fun HomeScreen(
     val todayCal = snap.calendar?.days?.firstOrNull { it.date == today.toString() }
     val todayOrder = todayCal?.dayOrder
     // Holidays and exam days on the academic calendar have no classes.
-    val dayOff = todayCal != null && todayCal.kind in setOf(com.shreenipane.orbit.core.model.DayKind.HOLIDAY, com.shreenipane.orbit.core.model.DayKind.NO_INSTRUCTION, com.shreenipane.orbit.core.model.DayKind.EXAM)
+    val dayOff = !com.shreenipane.orbit.core.calc.ClassDays.runs(snap.calendar, today)
     // Today's classes with your changes applied: cancelled ones stay listed (crossed out), extras are added.
     val dayClasses = if (dayOff) emptyList() else com.shreenipane.orbit.core.calc.Overrides.day(
         Schedule.forDay(snap.timetable.sessions, todayOrder ?: today.dayOfWeek.value), today, overrides)
@@ -142,7 +142,7 @@ fun HomeScreen(
 
         section(header = "Classes today", action = "Calendar" to { onOpen(MoreDestination.Calendar) }) {
             if (dayClasses.isEmpty()) {
-                ListRow("No classes today", todayCal?.label?.takeIf { dayOff && it.isNotBlank() })
+                ListRow("No classes today", todayCal?.let { com.shreenipane.orbit.core.calc.Breaks.holidayName(it) })
             } else {
                 Rows(dayClasses, inset = 82.dp) { dc ->
                     androidx.compose.foundation.layout.Box(Modifier.clickable { acting = dc.session }) {

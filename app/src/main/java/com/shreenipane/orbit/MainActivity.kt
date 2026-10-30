@@ -28,12 +28,17 @@ import com.shreenipane.orbit.ui.theme.OrbitTheme
 class MainActivity : FragmentActivity() {
     private var locked by mutableStateOf(false)
     private var stoppedAt = 0L
+    /** True while the unlock prompt is up: unlocking with the screen-lock PIN opens another screen, which must not re-lock. */
+    private var authenticating = false
+    /** Where a home-screen shortcut asked to go ("attendance", "timer", "bunk"). */
+    private var shortcut by mutableStateOf<String?>(null)
     private val repo get() = (application as OrbitApp).repository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         locked = repo.settings.biometricLock && canUseLock(this)
+        shortcut = shortcutOf(intent)
         setContent {
             val vm: AppViewModel = viewModel(factory = AppViewModel.factory(application, repo))
             val st by vm.state.collectAsStateWithLifecycle()
@@ -42,7 +47,13 @@ class MainActivity : FragmentActivity() {
                 2 -> true
                 else -> isSystemInDarkTheme()
             }
-            androidx.compose.runtime.SideEffect { com.shreenipane.orbit.ui.theme.Pastel.accentIndex = st.settings.accent }
+            androidx.compose.runtime.SideEffect {
+                com.shreenipane.orbit.ui.theme.Pastel.accentIndex = st.settings.accent
+                com.shreenipane.orbit.ui.components.Haptics.enabled = st.settings.haptics
+            }
+            LaunchedEffect(shortcut) {
+                shortcut?.let { vm.requestNav(it); shortcut = null }
+            }
             LaunchedEffect(dark) {
                 val t = android.graphics.Color.TRANSPARENT
                 val style = if (dark) SystemBarStyle.dark(t) else SystemBarStyle.light(t, t)
@@ -70,19 +81,39 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Re-lock after a minute in the background.
-        if (stoppedAt != 0L && repo.settings.biometricLock && canUseLock(this) &&
-            SystemClock.elapsedRealtime() - stoppedAt > 60_000
+        // Re-lock after the chosen time in the background (Settings → Security).
+        val timeout = repo.settings.lockTimeoutMin.coerceAtLeast(0) * 60_000L
+        if (!authenticating && stoppedAt != 0L && repo.settings.biometricLock && canUseLock(this) &&
+            SystemClock.elapsedRealtime() - stoppedAt >= timeout
         ) {
             locked = true
             promptUnlock()
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        shortcutOf(intent)?.let { shortcut = it }
+    }
+
+    /** Only these destinations are accepted from outside, whatever an intent carries. */
+    private fun shortcutOf(intent: android.content.Intent?): String? =
+        intent?.getStringExtra("dest")?.takeIf { it in setOf("attendance", "timer", "bunk") }
+
     private fun promptUnlock() {
+        if (authenticating) return
+        authenticating = true
         val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 locked = false
+                authenticating = false
+                stoppedAt = 0L
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                // Cancelled or failed: stay locked; the lock screen's button asks again.
+                authenticating = false
+                stoppedAt = 0L
             }
         })
         prompt.authenticate(

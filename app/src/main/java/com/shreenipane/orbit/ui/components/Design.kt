@@ -41,6 +41,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -82,6 +86,18 @@ fun Modifier.brutal(
 
 /** Tile colours cycle through the pastel set so a row of stats doesn't look flat. */
 val TILE_COLORS: List<Color> get() = listOf(Pastel.Yellow, Pastel.Green, Pastel.Lavender, Pastel.Sky, Pastel.Salmon)
+
+/** Haptic feedback switch (Settings → Appearance), set from settings at the top of the app. */
+object Haptics {
+    var enabled by mutableStateOf(true)
+}
+
+/** A light tick for taps on buttons, tabs, segments and switches; does nothing when haptics are off. */
+@Composable
+fun rememberTick(): () -> Unit {
+    val h = LocalHapticFeedback.current
+    return remember(h) { { if (Haptics.enabled) h.performHapticFeedback(HapticFeedbackType.TextHandleMove) } }
+}
 
 /**
  * A screen with a large hand-drawn title that scrolls with the content.
@@ -263,6 +279,7 @@ fun Metric(value: String, label: String, modifier: Modifier = Modifier, valueCol
 /** Segmented control: outlined bar, the selected segment filled yellow with its own outline. */
 @Composable
 fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val tick = rememberTick()
     Row(
         modifier.fillMaxWidth().brutal(Pastel.Card, radius = 12.dp, shadow = 3.dp).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -277,7 +294,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
                             .border(1.5.dp, Pastel.Line, RoundedCornerShape(9.dp))
                         else Modifier.clip(RoundedCornerShape(9.dp)),
                     )
-                    .clickable { onSelect(i) }
+                    .clickable { if (i != selected) tick(); onSelect(i) }
                     .padding(vertical = 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -302,13 +319,14 @@ fun BrutalButton(
     leading: (@Composable () -> Unit)? = null,
 ) {
     val source = remember { MutableInteractionSource() }
+    val tick = rememberTick()
     val pressed by source.collectIsPressedAsState()
     val shift = if (pressed) 3.dp else 0.dp
     Row(
         modifier
             .offset(x = shift, y = shift)
             .brutal(if (enabled) fill else Pastel.CardLight, radius = 12.dp, shadow = if (pressed) 1.dp else 4.dp)
-            .clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick)
+            .clickable(interactionSource = source, indication = null, enabled = enabled) { tick(); onClick() }
             .heightIn(min = 50.dp)
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

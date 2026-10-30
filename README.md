@@ -34,7 +34,12 @@ A native Android (Kotlin + Jetpack Compose) app for VIT Vellore students, pulled
 * **Widgets:** next class, attendance, and next exam; plus a quick-settings tile for the next class
 * **Smart alerts:** Monday's week ahead, and a warning when a course falls to 75% or under
 * **Faculty info, fees, hostel leave:** VTOP's own pages opened in the app, already signed in
-* **Accent colour:** choose your own in Settings
+* **Accent colour and haptics:** choose your accent colour, and a light tick on taps (Settings → Appearance)
+* **Home-screen shortcuts:** long-press the icon for Attendance, Bunk planner or Study timer
+* **Lock-screen privacy:** marks and attendance notifications stay off the lock screen; reminders show as "Orbit reminder"
+* **App lock timeout:** lock again always, or after 1, 5 or 15 minutes
+* **Offline banner:** shows how old your data is when VTOP can't be reached, with Retry
+* **Calendar first:** days the academic calendar doesn't mark as class days show no classes
 * **Home-screen widget** with the next class; **calendar export** (.ics); **backup and restore** of everything kept only on the phone; **weekly attendance report** on Sunday evening; **fee reminders**; light, dark or system theme
 * **Alerts:** before each class, the evening before an exam and an hour before it, and for new marks or absences after a background sync
 * **App lock** with fingerprint, face or screen lock, plus a display name of your choice

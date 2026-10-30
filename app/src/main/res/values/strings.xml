@@ -4,4 +4,7 @@
     <string name="widget_attendance_description">Your lowest attendance and what to do about it</string>
     <string name="widget_exam_description">Countdown to your next exam, with venue and seat</string>
     <string name="tile_label">Next class</string>
+    <string name="shortcut_attendance">Attendance</string>
+    <string name="shortcut_bunk">Bunk planner</string>
+    <string name="shortcut_timer">Study timer</string>
 </resources>
