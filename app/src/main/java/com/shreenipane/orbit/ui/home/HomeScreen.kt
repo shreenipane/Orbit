@@ -106,16 +106,17 @@ fun HomeScreen(
         if (tot == 0) null else AttendanceCalc.percent(att, tot)
     }
 
+    // Exam week: the next paper within 7 days gets the top spot. (Computed here: the list builder below isn't composable.)
+    val paper = remember(snap.exams, now.toLocalDate(), now.hour) {
+        ExamTime.upcoming(snap.exams, now).firstOrNull()?.takeIf { (_, at) -> !at.toLocalDate().isAfter(now.toLocalDate().plusDays(7)) }
+    }
+
     OrbitScreen(
         title = if (alias.isNotBlank()) "Hi, $alias" else "Today",
         subtitle = now.format(DATE),
         refreshing = refreshing,
         onRefresh = onRefresh,
     ) {
-        // Exam week: the next paper within 7 days gets the top spot.
-        val paper = remember(snap.exams, now.toLocalDate(), now.hour) {
-            ExamTime.upcoming(snap.exams, now).firstOrNull()?.takeIf { (_, at) -> !at.toLocalDate().isAfter(now.toLocalDate().plusDays(7)) }
-        }
         if (paper != null) {
             item { ExamCard(paper.first, paper.second, now) }
         } else if (countdown != null && countdown.daysLeft <= 7) {
