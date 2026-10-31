@@ -137,4 +137,3 @@ Keep `orbit.jks` and its passwords safe and out of the repo. You'll need to unin
 
 QR codes use [ZXing](https://github.com/zxing/zxing) and [zxing-android-embedded](https://github.com/journeyapps/zxing-android-embedded) (Apache License 2.0).
 
-Endpoint shapes and the recorded test pages in `app/src/test/resources/fixtures/` (except `marks_synthetic.html`) come from [vitap-vtop-client](https://github.com/Udhay-Adithya/vitap-vtop-client) by Udhay Adithya (MIT License). See `NOTICE`.
